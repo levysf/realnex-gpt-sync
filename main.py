@@ -1,59 +1,74 @@
-import os
-import pandas as pd
-import requests
 from flask import Flask, request, jsonify
+import os
+import csv
+import requests
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = Flask(__name__)
-app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20MB file upload limit
 
-REALNEX_API_KEY = os.environ.get("REALNEX_API_KEY")
+UPLOAD_FOLDER = "uploaded.csv"
+REALNEX_API_KEY = os.getenv("REALNEX_API_KEY")
 REALNEX_API_BASE = "https://api.realnex.com/api/v1"
 
-uploaded_file_path = "uploaded_scores.csv"
+# Health check endpoint
+@app.route("/", methods=["GET"])
+def index():
+    return "RealNex GPT Sync service is live", 200
 
+# Upload endpoint
 @app.route("/upload", methods=["PUT"])
 def upload_file():
-    file = request.data
-    with open(uploaded_file_path, "wb") as f:
-        f.write(file)
-    return "Upload successful"
+    if not REALNEX_API_KEY:
+        return jsonify({"error": "REALNEX_API_KEY not set"}), 500
 
+    with open(UPLOAD_FOLDER, "wb") as f:
+        f.write(request.data)
+    return "Upload successful", 200
+
+# Batch push endpoint
 @app.route("/batch_push", methods=["POST"])
 def batch_push():
-    if not os.path.exists(uploaded_file_path):
+    if not REALNEX_API_KEY:
+        return jsonify({"error": "REALNEX_API_KEY not set"}), 500
+
+    if not os.path.exists(UPLOAD_FOLDER):
         return jsonify({"error": "No uploaded file found"}), 400
 
-    df = pd.read_csv(uploaded_file_path)
     results = []
+    with open(UPLOAD_FOLDER, newline="", encoding="utf-8") as csvfile:
+        reader = csv.DictReader(csvfile)
+        batch = []
+        for row in reader:
+            contact_key = row.get("contact_key")
+            if not contact_key:
+                continue
+            payload = {
+                "user3": row.get("GPT Score", ""),
+                "user4": row.get("Next Action", ""),
+                "user8": row.get("Last Scored", "")
+            }
+            batch.append((contact_key, payload))
 
-    for _, row in df.iterrows():
-        contact_key = row.get("contact_key")
-        if pd.isna(contact_key):
-            continue
+        for i, (contact_key, payload) in enumerate(batch):
+            url = f"{REALNEX_API_BASE}/Crm/contact/{contact_key}"
+            headers = {
+                "Authorization": f"Bearer {REALNEX_API_KEY}",
+                "Content-Type": "application/json"
+            }
+            response = requests.put(url, json=payload, headers=headers)
+            results.append({
+                "contact_key": contact_key,
+                "status": response.status_code,
+                "body": response.text
+            })
 
-        payload = {
-            "user_3": row.get("GPT Score", ""),
-            "user_4": row.get("Next Action", ""),
-            "user_8": row.get("Last Scored", ""),
-        }
+            # Stop after 100 to respect API limits
+            if (i + 1) % 100 == 0:
+                break
 
-        url = f"{REALNEX_API_BASE}/Crm/contact/{contact_key}"
-        headers = {
-            "accept": "application/json",
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {REALNEX_API_KEY}",
-        }
-
-        response = requests.put(url, headers=headers, json=payload)
-
-        results.append({
-            "contact_key": contact_key,
-            "status": response.status_code,
-            "body": response.text
-        })
-
-    return jsonify(results)
+    return jsonify({"results": results}), 200
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=10000)
