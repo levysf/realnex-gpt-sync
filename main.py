@@ -7,7 +7,7 @@ app = Flask(__name__)
 
 REALNEX_API_BASE = "https://sync.realnex.com/api/v1"
 API_KEY = os.getenv("REALNEX_API_KEY")
-PORT = int(os.environ.get("PORT", 10000))  # Use env PORT or default to 10000
+PORT = int(os.environ.get("PORT", 10000))
 
 HEADERS = {
     "Authorization": f"Bearer {API_KEY}",
@@ -42,3 +42,55 @@ def batch_push():
     with open(file_path, newline='', encoding='utf-8') as csvfile:
         reader = csv.DictReader(csvfile)
         for row in reader:
+            contact_key = row.get("account_key")
+            if not contact_key:
+                continue
+
+            payload = {
+                "userFields": {
+                    "user3": row.get("GPT Score", ""),
+                    "user4": row.get("Next Action", ""),
+                    "user8": row.get("Last Scored", "")
+                }
+            }
+
+            print(f"\nPreparing update for contact_key={contact_key}")
+            print(f"Payload: {payload}")
+            updates.append((contact_key, payload))
+
+    failures = []
+    success = 0
+
+    for i in range(0, len(updates), 99):
+        batch = updates[i:i + 99]
+        for contact_key, payload in batch:
+            url = f"{REALNEX_API_BASE}/Crm/contact/{contact_key}"
+            try:
+                print(f"PUT {url}")
+                response = requests.put(url, json=payload, headers=HEADERS)
+                if response.ok:
+                    success += 1
+                    print(f"✅ Success: {contact_key}")
+                else:
+                    print(f"❌ Failed: {contact_key} - Status: {response.status_code} - Body: {response.text}")
+                    failures.append({
+                        "contact_key": contact_key,
+                        "status": response.status_code,
+                        "body": response.text
+                    })
+            except Exception as e:
+                print(f"❌ Exception for {contact_key}: {str(e)}")
+                failures.append({
+                    "contact_key": contact_key,
+                    "status": "EXCEPTION",
+                    "body": str(e)
+                })
+
+    return jsonify({
+        "success": success,
+        "failures": failures,
+        "total": len(updates)
+    })
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=PORT)
