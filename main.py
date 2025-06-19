@@ -76,5 +76,7 @@ def batch_push():
         "total": len(updates)
     })
 
+PORT = int(os.environ.get("PORT", 5000))  # Render sets this, fallback is for local
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=PORT)
