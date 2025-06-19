@@ -1,56 +1,65 @@
-import requests
-import datetime
+from flask import Flask, request, jsonify
+import csv
 import os
-import pandas as pd
-import time
+import requests
 
-REALNEX_API_KEY = os.getenv("REALNEX_API_KEY")
-BASE_URL = "https://sync.realnex.com/api/v1/CrmOData"
-CSV_FILE = "Merged_Contact_Scores.csv"
+app = Flask(__name__)
 
+REALNEX_API_BASE = "https://sync.realnex.com/api/v1"
+API_KEY = os.getenv("REALNEX_API_KEY")
 HEADERS = {
-    "Authorization": f"Bearer {REALNEX_API_KEY}",
-    "Accept": "application/json",
+    "Authorization": f"Bearer {API_KEY}",
     "Content-Type": "application/json"
 }
 
-def update_contact_score(contact_key, score, next_action, date_str):
-    url = f"{BASE_URL}/Contacts(guid'{contact_key}')"
-    body = {
-        "user_3": str(score),
-        "user_4": next_action,
-        "user_8": date_str
-    }
-    res = requests.patch(url, headers=HEADERS, json=body)
-    return res.status_code, res.text
+@app.route("/")
+def root():
+    return "✅ RealNex GPT Sync is live!", 200
 
-def main():
-    today = datetime.datetime.utcnow().strftime("%Y-%m-%d")
-    df = pd.read_csv(CSV_FILE)
-    updated = []
+@app.route("/noop")
+def noop():
+    return "noop", 200
 
-    for _, row in df.iterrows():
-        contact_key = row.get("contact_key", "").strip("{}")
-        score = row.get("total_score", 0)
+@app.route("/upload", methods=["PUT"])
+def upload_csv():
+    try:
+        with open("/mnt/data/Merged_Contact_Scores.csv", "wb") as f:
+            chunk_size = 4096
+            while True:
+                chunk = request.stream.read(chunk_size)
+                if not chunk:
+                    break
+                f.write(chunk)
+        return "Upload successful", 200
+    except Exception as e:
+        return f"Upload failed: {str(e)}", 500
 
-        if not contact_key or pd.isna(score):
-            continue
+@app.route("/batch_push", methods=["POST"])
+def batch_push():
+    file_path = "/mnt/data/Merged_Contact_Scores.csv"
+    if not os.path.exists(file_path):
+        return "CSV file not found", 404
 
-        status, msg = update_contact_score(
-            contact_key,
-            round(score, 2),
-            "Scored via GPT",
-            today
-        )
+    updates = []
+    with open(file_path, newline='', encoding='utf-8') as csvfile:
+        reader = csv.DictReader(csvfile)
+        for row in reader:
+            contact_id = row.get("ContactKey")
+            if not contact_id:
+                continue
+            payload = {
+                "userFields": {
+                    "user3": row.get("GPT Score", ""),
+                    "user4": row.get("Next Action", ""),
+                    "user8": row.get("Last Scored", "")
+                }
+            }
+            updates.append((contact_id, payload))
 
-        print(f"Updated {row['contact_name']} ({contact_key}): {status}")
-        updated.append((row['contact_name'], status, msg))
-
-    print(f"\n✅ Finished one batch: {len(updated)} contacts pushed.")
-
-if __name__ == "__main__":
-    start = time.time()
-    while time.time() - start < 1200:  # 20 minutes
-        main()
-        print("Sleeping 5 seconds...\n")
-        time.sleep(5)
+    # Push in batches of 99
+    failures = []
+    for i in range(0, len(updates), 99):
+        batch = updates[i:i+99]
+        for contact_id, payload in batch:
+            url = f"{REALNEX_API_BASE}/Crm/contact/{contact_id}"
+            response = requests.put(url, json=payload, headers=HEADERS)
