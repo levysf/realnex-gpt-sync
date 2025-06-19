@@ -1,71 +1,75 @@
 import os
 import csv
-import pandas as pd
 import requests
 from flask import Flask, request, jsonify
+import pandas as pd
 
 app = Flask(__name__)
 
-REALNEX_API_KEY = os.getenv("REALNEX_API_KEY")
-REALNEX_API_BASE = "https://api.realnex.com"
+# Increase allowed upload size to 50MB
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
 
-CSV_FILE_PATH = "Merged_Contact_Scores.csv"
+REALNEX_API_KEY = os.environ.get("REALNEX_API_KEY")
+REALNEX_API_BASE = "https://api.realnex.com/api/v1"
 
-headers = {
-    "accept": "application/json",
-    "content-type": "application/json",
-    "authorization": f"Bearer {REALNEX_API_KEY}"
-}
+UPLOAD_PATH = "latest_uploaded.csv"
 
 
 @app.route("/upload", methods=["PUT"])
-def upload_csv():
-    with open(CSV_FILE_PATH, "wb") as f:
+def upload():
+    with open(UPLOAD_PATH, "wb") as f:
         f.write(request.data)
     return "Upload successful", 200
 
 
 @app.route("/batch_push", methods=["POST"])
 def batch_push():
-    try:
-        with open(CSV_FILE_PATH, "r", encoding="utf-8-sig") as csvfile:
-            reader = csv.DictReader(csvfile)
-            results = []
+    if not os.path.exists(UPLOAD_PATH):
+        return "No uploaded file found.", 400
 
-            for row in reader:
-                if not row or not isinstance(row, dict):
-                    continue
+    results = []
 
-                contact_key = row.get("contact_key", "").strip()
-                gpt_score = row.get("GPT Score", "").strip()
-                last_scored = row.get("Last Scored", "").strip()
+    with open(UPLOAD_PATH, "r", encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            contact_key = row.get("contact_key")
+            gpt_score = row.get("GPT Score", "")
+            last_scored = row.get("Last Scored", "")
+            if not contact_key:
+                continue
 
-                if not contact_key:
-                    print(f"Skipping row with missing contact_key: {row}")
-                    continue
+            payload = {
+                "user_3": gpt_score,
+                "user_8": last_scored
+            }
 
-                url = f"{REALNEX_API_BASE}/api/v1/Crm/contact/{contact_key}"
-                payload = {
-                    "user_3": gpt_score,
-                    "user_4": "Batch Scored",
-                    "user_8": last_scored,
-                }
+            url = f"{REALNEX_API_BASE}/Crm/contact/{contact_key}"
+            headers = {
+                "Authorization": f"Bearer {REALNEX_API_KEY}",
+                "Content-Type": "application/json"
+            }
 
-                response = requests.put(url, headers=headers, json=payload)
-                print(f"Pushed to {contact_key} with status {response.status_code}: {response.text}")
-
+            try:
+                response = requests.put(url, json=payload, headers=headers)
                 results.append({
                     "contact_key": contact_key,
                     "status": response.status_code,
                     "body": response.text
                 })
+            except Exception as e:
+                results.append({
+                    "contact_key": contact_key,
+                    "status": "error",
+                    "body": str(e)
+                })
 
-        return jsonify(results)
+    return jsonify(results)
 
-    except Exception as e:
-        print(f"Error in batch_push: {e}")
-        return f"Error: {str(e)}", 500
+
+@app.route("/", methods=["GET"])
+def index():
+    return "RealNex GPT Sync is live!", 200
 
 
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=10000)
+    app.run(host="0.0.0.0", port=10000)
