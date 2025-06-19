@@ -2,6 +2,7 @@ import requests
 import datetime
 import os
 import pandas as pd
+import time
 
 REALNEX_API_KEY = os.getenv("REALNEX_API_KEY")
 BASE_URL = "https://sync.realnex.com/api/v1/CrmOData"
@@ -45,7 +46,11 @@ def main():
         print(f"Updated {row['contact_name']} ({contact_key}): {status}")
         updated.append((row['contact_name'], status, msg))
 
-    print(f"\n✅ Finished. {len(updated)} contacts pushed.")
+    print(f"\n✅ Finished one batch: {len(updated)} contacts pushed.")
 
 if __name__ == "__main__":
-    main()
+    start = time.time()
+    while time.time() - start < 1200:  # 20 minutes
+        main()
+        print("Sleeping 5 seconds...\n")
+        time.sleep(5)
