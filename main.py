@@ -1,96 +1,73 @@
-from flask import Flask, request, jsonify
-import csv
-import os
+import pandas as pd
 import requests
+from flask import Flask, request
+import os
+import sys
 
 app = Flask(__name__)
 
-REALNEX_API_BASE = "https://sync.realnex.com/api/v1"
-API_KEY = os.getenv("REALNEX_API_KEY")
-PORT = int(os.environ.get("PORT", 10000))
+REALNEX_API_BASE = "https://api.realnex.com"
+REALNEX_API_KEY = os.getenv("REALNEX_API_KEY")
 
 HEADERS = {
-    "Authorization": f"Bearer {API_KEY}",
-    "Content-Type": "application/json"
+    "accept": "application/json",
+    "content-type": "application/json",
+    "authorization": f"Bearer {REALNEX_API_KEY}"
 }
 
-@app.route("/")
-def root():
-    return "✅ RealNex GPT Sync is live!", 200
+@app.route('/')
+def index():
+    return "RealNex GPT Sync is live!"
 
-@app.route("/noop")
-def noop():
-    return "noop", 200
+@app.route('/upload', methods=['PUT'])
+def upload():
+    with open("Merged_Contact_Scores.csv", "wb") as f:
+        f.write(request.get_data())
+    print("✅ File uploaded: Merged_Contact_Scores.csv")
+    sys.stdout.flush()
+    return "Upload successful", 200
 
-@app.route("/upload", methods=["PUT"])
-def upload_csv():
-    try:
-        data = request.get_data()
-        with open("/mnt/data/Merged_Contact_Scores.csv", "wb") as f:
-            f.write(data)
-        return "Upload successful", 200
-    except Exception as e:
-        return f"Upload failed: {str(e)}", 500
-
-@app.route("/batch_push", methods=["POST"])
+@app.route('/batch_push', methods=['POST'])
 def batch_push():
-    file_path = "/mnt/data/Merged_Contact_Scores.csv"
-    if not os.path.exists(file_path):
-        return "CSV file not found", 404
+    print("🚀 Starting batch push")
+    sys.stdout.flush()
 
-    updates = []
-    with open(file_path, newline='', encoding='utf-8') as csvfile:
-        reader = csv.DictReader(csvfile)
-        for row in reader:
-            contact_key = row.get("account_key")
-            if not contact_key:
-                continue
+    try:
+        df = pd.read_csv("Merged_Contact_Scores.csv")
+    except Exception as e:
+        print(f"❌ Error reading CSV: {e}")
+        sys.stdout.flush()
+        return "Failed to read CSV", 500
 
-            payload = {
-                "userFields": {
-                    "user3": row.get("GPT Score", ""),
-                    "user4": row.get("Next Action", ""),
-                    "user8": row.get("Last Scored", "")
-                }
-            }
+    for index, row in df.iterrows():
+        contact_key = row.get("contact_key")
+        gpt_score = row.get("GPT Score")
+        last_scored = row.get("Last Scored")
 
-            print(f"\nPreparing update for contact_key={contact_key}")
-            print(f"Payload: {payload}")
-            updates.append((contact_key, payload))
+        if not contact_key or pd.isna(gpt_score):
+            print(f"⚠️ Skipping row {index}: missing data")
+            continue
 
-    failures = []
-    success = 0
+        payload = {
+            "user3": str(gpt_score),
+            "user4": "Push OK",
+            "user8": last_scored
+        }
 
-    for i in range(0, len(updates), 99):
-        batch = updates[i:i + 99]
-        for contact_key, payload in batch:
-            url = f"{REALNEX_API_BASE}/Crm/contact/{contact_key}"
-            try:
-                print(f"PUT {url}")
-                response = requests.put(url, json=payload, headers=HEADERS)
-                if response.ok:
-                    success += 1
-                    print(f"✅ Success: {contact_key}")
-                else:
-                    print(f"❌ Failed: {contact_key} - Status: {response.status_code} - Body: {response.text}")
-                    failures.append({
-                        "contact_key": contact_key,
-                        "status": response.status_code,
-                        "body": response.text
-                    })
-            except Exception as e:
-                print(f"❌ Exception for {contact_key}: {str(e)}")
-                failures.append({
-                    "contact_key": contact_key,
-                    "status": "EXCEPTION",
-                    "body": str(e)
-                })
+        try:
+            url = f"{REALNEX_API_BASE}/api/v1/Crm/contact/{contact_key}"
+            response = requests.put(url, json=payload, headers=HEADERS)
 
-    return jsonify({
-        "success": success,
-        "failures": failures,
-        "total": len(updates)
-    })
+            print(f"➡️ {contact_key}: {response.status_code} - {response.text}")
+            sys.stdout.flush()
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=PORT)
+        except Exception as e:
+            print(f"❌ Error pushing contact {contact_key}: {e}")
+            sys.stdout.flush()
+
+    print("✅ Batch push complete")
+    sys.stdout.flush()
+    return "Batch push completed", 200
+
+if __name__ == '__main__':
+    app.run(host="0.0.0.0", port=10000)
