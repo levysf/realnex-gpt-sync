@@ -1,7 +1,6 @@
 services:
-  - type: cron
-    name: realnex-gpt-sync
-    schedule: "@daily"
+  - type: web
+    name: realnex-gpt-websync
     runtime: python
     buildCommand: "pip install -r requirements.txt"
     startCommand: "python main.py"
