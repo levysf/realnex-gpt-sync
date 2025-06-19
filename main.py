@@ -59,3 +59,19 @@ def batch_push():
         for contact_id, payload in batch:
             url = f"{REALNEX_API_BASE}/Crm/contact/{contact_id}"
             response = requests.put(url, json=payload, headers=HEADERS)
+            if response.status_code != 200:
+                failures.append({
+                    "contact_id": contact_id,
+                    "status_code": response.status_code,
+                    "response": response.text
+                })
+
+    return jsonify({
+        "total": len(updates),
+        "failures": failures,
+        "success": len(updates) - len(failures)
+    })
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
