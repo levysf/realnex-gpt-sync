@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request
+from flask import Flask, request, jsonify
 import os
 import csv
 import requests
@@ -6,14 +6,10 @@ import time
 
 app = Flask(__name__)
 
-# Path to your local file
-CSV_FILE_PATH = r"C:\Users\joe\Downloads\RealNex API Test.csv"
-
-# RealNex API config
+UPLOAD_FILE = "uploaded.csv"
 REALNEX_API_KEY = os.getenv("REALNEX_API_KEY")
 REALNEX_API_BASE = "https://api.realnex.com/api/v1"
 
-# Validate API key early
 if not REALNEX_API_KEY:
     raise RuntimeError("REALNEX_API_KEY environment variable is required")
 
@@ -21,19 +17,23 @@ if not REALNEX_API_KEY:
 def index():
     return "RealNex GPT Sync service is live", 200
 
-# Upload is disabled in this version
 @app.route("/upload", methods=["PUT"])
 def upload_file():
-    return "Upload endpoint is disabled in this version. File path is hardcoded.", 400
+    try:
+        with open(UPLOAD_FILE, "wb") as f:
+            f.write(request.data)
+        return "Upload successful", 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/batch_push", methods=["POST"])
 def batch_push():
-    if not os.path.exists(CSV_FILE_PATH):
-        return jsonify({"error": f"File not found: {CSV_FILE_PATH}"}), 400
+    if not os.path.exists(UPLOAD_FILE):
+        return jsonify({"error": f"CSV file not found at {UPLOAD_FILE}"}), 400
 
     results = []
 
-    with open(CSV_FILE_PATH, newline="", encoding="utf-8") as csvfile:
+    with open(UPLOAD_FILE, newline="", encoding="utf-8") as csvfile:
         reader = csv.DictReader(csvfile)
         batch = []
         for row in reader:
@@ -62,7 +62,6 @@ def batch_push():
                     "body": response.text
                 }
 
-                # If rate-limited, sleep and retry
                 if response.status_code == 429:
                     time.sleep(5)
                     response = requests.put(url, json=payload, headers=headers)
@@ -76,7 +75,6 @@ def batch_push():
                     "error": str(e)
                 })
 
-            # Throttle every 100 requests
             if (i + 1) % 100 == 0:
                 time.sleep(1)
 
