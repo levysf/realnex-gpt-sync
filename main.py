@@ -7,6 +7,8 @@ app = Flask(__name__)
 
 REALNEX_API_BASE = "https://sync.realnex.com/api/v1"
 API_KEY = os.getenv("REALNEX_API_KEY")
+PORT = int(os.environ.get("PORT", 10000))  # Use environment PORT or default to 10000
+
 HEADERS = {
     "Authorization": f"Bearer {API_KEY}",
     "Content-Type": "application/json"
@@ -44,27 +46,24 @@ def batch_push():
             if not contact_id:
                 continue
             payload = {
-                "investorData": {
-                    "userFields": {
-                        "user3": row.get("total_score", "").strip(),
-                        "user4": row.get("Next Action", "").strip(),
-                        "user8": row.get("Scorecarded", "").strip()
-                    }
+                "userFields": {
+                    "user3": row.get("total_score", ""),
+                    "user4": row.get("Next Action", ""),
+                    "user8": row.get("Scorecarded", "")
                 }
             }
             updates.append((contact_id, payload))
 
     failures = []
     success = 0
-
     for i in range(0, len(updates), 99):
         batch = updates[i:i+99]
         for contact_id, payload in batch:
-            url = f"{REALNEX_API_BASE}/Crm/contact/{contact_id}/investor"
+            url = f"{REALNEX_API_BASE}/Crm/contact/{contact_id}"
             response = requests.put(url, json=payload, headers=HEADERS)
-            if response.status_code != 200:
+            if not response.ok:
                 failures.append({
-                    "contact": contact_id,
+                    "contact_id": contact_id,
                     "status": response.status_code,
                     "body": response.text
                 })
@@ -76,3 +75,6 @@ def batch_push():
         "failures": failures,
         "total": len(updates)
     })
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=PORT)
