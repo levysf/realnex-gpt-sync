@@ -23,13 +23,9 @@ def noop():
 @app.route("/upload", methods=["PUT"])
 def upload_csv():
     try:
+        data = request.get_data()
         with open("/mnt/data/Merged_Contact_Scores.csv", "wb") as f:
-            chunk_size = 4096
-            while True:
-                chunk = request.stream.read(chunk_size)
-                if not chunk:
-                    break
-                f.write(chunk)
+            f.write(data)
         return "Upload successful", 200
     except Exception as e:
         return f"Upload failed: {str(e)}", 500
