@@ -7,7 +7,7 @@ app = Flask(__name__)
 
 REALNEX_API_BASE = "https://sync.realnex.com/api/v1"
 API_KEY = os.getenv("REALNEX_API_KEY")
-PORT = int(os.environ.get("PORT", 10000))  # Default to 10000
+PORT = int(os.environ.get("PORT", 10000))  # default port for Render
 
 HEADERS = {
     "Authorization": f"Bearer {API_KEY}",
@@ -59,7 +59,7 @@ def batch_push():
     for i in range(0, len(updates), 99):
         batch = updates[i:i+99]
         for contact_key, payload in batch:
-            url = f"{REALNEX_API_BASE}/Crm/contact/{contact_key}"
+            url = f"{REALNEX_API_BASE}/Crm/contacts/{contact_key}"  # <-- FIXED PLURAL ENDPOINT
             response = requests.put(url, json=payload, headers=HEADERS)
             if not response.ok:
                 failures.append({
@@ -75,7 +75,6 @@ def batch_push():
         "failures": failures,
         "total": len(updates)
     })
-
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=PORT)
