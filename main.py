@@ -1,73 +1,71 @@
+import os
+import csv
 import pandas as pd
 import requests
-from flask import Flask, request
-import os
-import sys
+from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-REALNEX_API_BASE = "https://api.realnex.com"
 REALNEX_API_KEY = os.getenv("REALNEX_API_KEY")
+REALNEX_API_BASE = "https://api.realnex.com"
 
-HEADERS = {
+CSV_FILE_PATH = "Merged_Contact_Scores.csv"
+
+headers = {
     "accept": "application/json",
     "content-type": "application/json",
     "authorization": f"Bearer {REALNEX_API_KEY}"
 }
 
-@app.route('/')
-def index():
-    return "RealNex GPT Sync is live!"
 
-@app.route('/upload', methods=['PUT'])
-def upload():
-    with open("Merged_Contact_Scores.csv", "wb") as f:
-        f.write(request.get_data())
-    print("✅ File uploaded: Merged_Contact_Scores.csv")
-    sys.stdout.flush()
+@app.route("/upload", methods=["PUT"])
+def upload_csv():
+    with open(CSV_FILE_PATH, "wb") as f:
+        f.write(request.data)
     return "Upload successful", 200
 
-@app.route('/batch_push', methods=['POST'])
+
+@app.route("/batch_push", methods=["POST"])
 def batch_push():
-    print("🚀 Starting batch push")
-    sys.stdout.flush()
-
     try:
-        df = pd.read_csv("Merged_Contact_Scores.csv")
+        with open(CSV_FILE_PATH, "r", encoding="utf-8-sig") as csvfile:
+            reader = csv.DictReader(csvfile)
+            results = []
+
+            for row in reader:
+                if not row or not isinstance(row, dict):
+                    continue
+
+                contact_key = row.get("contact_key", "").strip()
+                gpt_score = row.get("GPT Score", "").strip()
+                last_scored = row.get("Last Scored", "").strip()
+
+                if not contact_key:
+                    print(f"Skipping row with missing contact_key: {row}")
+                    continue
+
+                url = f"{REALNEX_API_BASE}/api/v1/Crm/contact/{contact_key}"
+                payload = {
+                    "user_3": gpt_score,
+                    "user_4": "Batch Scored",
+                    "user_8": last_scored,
+                }
+
+                response = requests.put(url, headers=headers, json=payload)
+                print(f"Pushed to {contact_key} with status {response.status_code}: {response.text}")
+
+                results.append({
+                    "contact_key": contact_key,
+                    "status": response.status_code,
+                    "body": response.text
+                })
+
+        return jsonify(results)
+
     except Exception as e:
-        print(f"❌ Error reading CSV: {e}")
-        sys.stdout.flush()
-        return "Failed to read CSV", 500
+        print(f"Error in batch_push: {e}")
+        return f"Error: {str(e)}", 500
 
-    for index, row in df.iterrows():
-        contact_key = row.get("contact_key")
-        gpt_score = row.get("GPT Score")
-        last_scored = row.get("Last Scored")
 
-        if not contact_key or pd.isna(gpt_score):
-            print(f"⚠️ Skipping row {index}: missing data")
-            continue
-
-        payload = {
-            "user3": str(gpt_score),
-            "user4": "Push OK",
-            "user8": last_scored
-        }
-
-        try:
-            url = f"{REALNEX_API_BASE}/api/v1/Crm/contact/{contact_key}"
-            response = requests.put(url, json=payload, headers=HEADERS)
-
-            print(f"➡️ {contact_key}: {response.status_code} - {response.text}")
-            sys.stdout.flush()
-
-        except Exception as e:
-            print(f"❌ Error pushing contact {contact_key}: {e}")
-            sys.stdout.flush()
-
-    print("✅ Batch push complete")
-    sys.stdout.flush()
-    return "Batch push completed", 200
-
-if __name__ == '__main__':
-    app.run(host="0.0.0.0", port=10000)
+if __name__ == "__main__":
+    app.run(debug=True, host="0.0.0.0", port=10000)
