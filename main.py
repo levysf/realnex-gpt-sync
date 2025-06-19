@@ -49,7 +49,7 @@ def batch_push():
                 "userFields": {
                     "user3": row.get("GPT Score", ""),
                     "user4": row.get("Next Action", ""),
-                    "user8": row.get("Scorecarded", "")
+                    "user8": row.get("Last Scored", "")
                 }
             }
             updates.append((contact_key, payload))
