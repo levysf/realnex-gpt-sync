@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 import os
 import csv
 import requests
+import time
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -11,6 +12,9 @@ app = Flask(__name__)
 UPLOAD_FOLDER = "uploaded.csv"
 REALNEX_API_KEY = os.getenv("REALNEX_API_KEY")
 REALNEX_API_BASE = "https://api.realnex.com/api/v1"
+
+if not REALNEX_API_KEY:
+    raise RuntimeError("REALNEX_API_KEY environment variable is required")
 
 # Health check endpoint
 @app.route("/", methods=["GET"])
@@ -64,9 +68,12 @@ def batch_push():
                 "body": response.text
             })
 
-            # Stop after 100 to respect API limits
+            # throttle after every 100 requests to respect API limits
             if (i + 1) % 100 == 0:
-                break
+                time.sleep(1)
+
+            if response.status_code == 429:
+                time.sleep(60)
 
     return jsonify({"results": results}), 200
 
