@@ -40,38 +40,39 @@ def batch_push():
     with open(file_path, newline='', encoding='utf-8') as csvfile:
         reader = csv.DictReader(csvfile)
         for row in reader:
-            contact_id = row.get("ContactKey")
+            contact_id = row.get("contact_key")
             if not contact_id:
                 continue
             payload = {
-                "userFields": {
-                    "user3": row.get("GPT Score", ""),
-                    "user4": row.get("Next Action", ""),
-                    "user8": row.get("Last Scored", "")
+                "investorData": {
+                    "userFields": {
+                        "user3": row.get("total_score", "").strip(),
+                        "user4": row.get("Next Action", "").strip(),
+                        "user8": row.get("Scorecarded", "").strip()
+                    }
                 }
             }
             updates.append((contact_id, payload))
 
-    # Push in batches of 99
     failures = []
+    success = 0
+
     for i in range(0, len(updates), 99):
         batch = updates[i:i+99]
         for contact_id, payload in batch:
-            url = f"{REALNEX_API_BASE}/Crm/contact/{contact_id}"
+            url = f"{REALNEX_API_BASE}/Crm/contact/{contact_id}/investor"
             response = requests.put(url, json=payload, headers=HEADERS)
             if response.status_code != 200:
                 failures.append({
-                    "contact_id": contact_id,
-                    "status_code": response.status_code,
-                    "response": response.text
+                    "contact": contact_id,
+                    "status": response.status_code,
+                    "body": response.text
                 })
+            else:
+                success += 1
 
     return jsonify({
-        "total": len(updates),
+        "success": success,
         "failures": failures,
-        "success": len(updates) - len(failures)
+        "total": len(updates)
     })
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
