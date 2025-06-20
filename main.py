@@ -10,16 +10,14 @@ UPLOAD_FILENAME = "uploaded.csv"
 REALNEX_API_KEY = os.getenv("REALNEX_API_KEY")
 REALNEX_API_BASE = "https://api.realnex.com/api/v1"
 
-# Validate API key early
+# Ensure API key is available
 if not REALNEX_API_KEY:
     raise RuntimeError("REALNEX_API_KEY environment variable is required")
 
-# Health check
 @app.route("/", methods=["GET"])
 def index():
     return "✅ RealNex GPT Sync is live.", 200
 
-# Upload CSV
 @app.route("/upload", methods=["PUT"])
 def upload_file():
     try:
@@ -29,27 +27,34 @@ def upload_file():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# Batch push endpoint
 @app.route("/batch_push", methods=["POST"])
 def batch_push():
     if not os.path.exists(UPLOAD_FILENAME):
         return jsonify({"error": f"CSV file not found: {UPLOAD_FILENAME}"}), 400
 
     results = []
+
     with open(UPLOAD_FILENAME, newline="", encoding="utf-8") as csvfile:
         reader = csv.DictReader(csvfile)
-        batch = [(row.get("contact_key"), {
-            "user3": row.get("GPT Score", ""),
-            "user4": row.get("Next Action", ""),
-            "user8": row.get("Last Scored", "")
-        }) for row in reader if row.get("contact_key")]
+        valid_rows = []
 
-    for i, (contact_key, payload) in enumerate(batch):
+        for row in reader:
+            contact_key = row.get("contact_key", "").strip()
+            if contact_key:
+                payload = {
+                    "user3": row.get("GPT Score", "").strip(),
+                    "user4": row.get("Next Action", "").strip(),
+                    "user8": row.get("Last Scored", "").strip()
+                }
+                valid_rows.append((contact_key, payload))
+
+    for i, (contact_key, payload) in enumerate(valid_rows):
         url = f"{REALNEX_API_BASE}/Crm/contact/{contact_key}"
         headers = {
             "Authorization": f"Bearer {REALNEX_API_KEY}",
             "Content-Type": "application/json"
         }
+
         try:
             response = requests.put(url, json=payload, headers=headers)
             results.append({
@@ -63,8 +68,9 @@ def batch_push():
                 "error": str(e)
             })
 
+        # throttle after 100 requests
         if (i + 1) % 100 == 0:
-            time.sleep(1)  # throttle after 100 requests
+            time.sleep(1)
 
     return jsonify({"results": results}), 200
 
