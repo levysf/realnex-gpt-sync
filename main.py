@@ -1,76 +1,52 @@
-from flask import Flask, jsonify, request
 import os
 import csv
 import requests
-import time
-from io import BytesIO
 import pandas as pd
+import io
 
-app = Flask(__name__)
+REALNEX_API_TOKEN = os.getenv('REALNEX_API_TOKEN') or os.getenv('REALNEX_API_KEY')
+REALNEX_API_BASE = "https://sync.realnex.com/api/v1"
+GOOGLE_DRIVE_FILE_ID = "1uQVIDe2Jmi8CqyJtQikXZhn8cuc03VOk"
 
-REALNEX_API_KEY = os.getenv("REALNEX_API_KEY")
-REALNEX_API_BASE = "https://api.realnex.com/api/v1"
+def download_csv(file_id: str) -> pd.DataFrame:
+    url = f"https://drive.google.com/uc?export=download&id={file_id}"
+    resp = requests.get(url)
+    resp.raise_for_status()
+    return pd.read_csv(io.StringIO(resp.text))
 
-# Your Google Drive file ID
-GOOGLE_DRIVE_FILE_ID = "1vudyvYwyr7R1qYLJY4TBOin5mlbyKi1M"
+def update_contact(contact_key: str, user3_value: str) -> requests.Response:
+    url = f"{REALNEX_API_BASE}/Crm/contact/{contact_key}/investor"
+    headers = {
+        "Authorization": f"Bearer {REALNEX_API_TOKEN}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "X-SelectedDb-Key": "c8fc1bac-3987-45b7-ba91-3551921b1f1a"
+    }
+    payload = {
+        "userFields": {
+            "user3": user3_value
+        }
+    }
+    return requests.put(url, json=payload, headers=headers)
 
-# Health check endpoint
-@app.route("/", methods=["GET"])
-def index():
-    return "RealNex GPT Sync service is live", 200
+def main():
+    if not REALNEX_API_TOKEN:
+        raise SystemExit("REALNEX_API_TOKEN environment variable not set")
 
-# Batch push endpoint (downloads file directly from Google Drive)
-@app.route("/batch_push", methods=["POST"])
-def batch_push():
-    if not REALNEX_API_KEY:
-        return jsonify({"error": "REALNEX_API_KEY not set"}), 500
+    df = download_csv(GOOGLE_DRIVE_FILE_ID)
 
-    # Construct Google Drive download URL
-    gdrive_url = f"https://drive.google.com/uc?export=download&id={GOOGLE_DRIVE_FILE_ID}"
-
-    try:
-        file_response = requests.get(gdrive_url)
-        file_response.raise_for_status()
-    except Exception as e:
-        return jsonify({"error": f"Failed to download file: {str(e)}"}), 500
-
-    try:
-        # Read Excel file into DataFrame
-        df = pd.read_excel(BytesIO(file_response.content))
-    except Exception as e:
-        return jsonify({"error": f"Failed to read Excel file: {str(e)}"}), 500
-
-    results = []
-    batch = []
+    if "contact_key" not in df.columns or "GPT Score" not in df.columns:
+        raise SystemExit("CSV must contain 'contact_key' and 'GPT Score' columns")
 
     for _, row in df.iterrows():
-        contact_key = row.get("contact_key")
-        if not contact_key:
-            continue
-        payload = {
-            "user3": row.get("GPT Score", ""),
-            "user4": row.get("Next Action", ""),
-            "user8": row.get("Last Scored", "")
-        }
-        batch.append((contact_key, payload))
-
-    for i, (contact_key, payload) in enumerate(batch):
-        url = f"{REALNEX_API_BASE}/Crm/contact/{contact_key}"
-        headers = {
-            "Authorization": f"Bearer {REALNEX_API_KEY}",
-            "Content-Type": "application/json"
-        }
-        response = requests.put(url, json=payload, headers=headers)
-        results.append({
-            "contact_key": contact_key,
-            "status": response.status_code,
-            "body": response.text
-        })
-
-        if (i + 1) % 100 == 0:
-            time.sleep(1)
-
-    return jsonify({"results": results}), 200
+        contact_key = str(row["contact_key"]).strip()
+        score = row["GPT Score"]
+        if contact_key and pd.notna(score):
+            resp = update_contact(contact_key, str(score))
+            if resp.status_code >= 400:
+                print(f"Failed to update {contact_key}: {resp.status_code} {resp.text}")
+            else:
+                print(f"Updated {contact_key}")
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    main()
