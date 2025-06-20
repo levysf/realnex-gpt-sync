@@ -1,24 +1,21 @@
 import requests
-import json
 import pandas as pd
-import os
-
-# Load environment variables
-REALNEX_API_TOKEN = os.getenv('REALNEX_API_TOKEN') or os.getenv('REALNEX_API_KEY')
-REALNEX_SELECTED_DB = os.getenv('REALNEX_SELECTED_DB')  # Must be set for header
-GOOGLE_DRIVE_FILE_ID = "1uQVIDe2Jmi8CqyJtQikXZhn8cuc03VOk"  # Replace with actual ID
+from io import StringIO
+from settings import REALNEX_API_TOKEN, REALNEX_SELECTED_DB, GOOGLE_DRIVE_FILE_ID
 
 REALNEX_API_BASE = "https://sync.realnex.com/api/v1"
+
+DEFAULT_FILE_ID = "1uQVIDe2Jmi8CqyJtQikXZhn8cuc03VOk"  # Your Google Sheet ID
 
 
 def download_csv(file_id: str) -> pd.DataFrame:
     url = f"https://drive.google.com/uc?export=download&id={file_id}"
     response = requests.get(url)
     response.raise_for_status()
-    return pd.read_csv(pd.compat.StringIO(response.text))
+    return pd.read_csv(StringIO(response.text))
 
 
-def build_full_payload(user3_value: str) -> dict:
+def build_payload(user3_value: str) -> dict:
     return {
         "broker": False,
         "rehabs": False,
@@ -29,13 +26,7 @@ def build_full_payload(user3_value: str) -> dict:
         "singleFamily": False,
         "creditTenant": False,
         "userFields": {
-            "user1": "norma.reay@yahoo.com",
-            "user2": "nreay@aol.com",
-            "user3": user3_value,
-            "user7": "1(650) 568-9311",
-            "user8": "1(417) 777-2484",
-            "user9": "1(573) 748-5690",
-            "user10": "1(905) 676-1695"
+            "user3": user3_value
         },
         "logicalFields": {f"logical{i}": False for i in range(1, 25)}
     }
@@ -49,18 +40,19 @@ def update_contact(contact_key: str, user3_value: str) -> requests.Response:
         "Accept": "application/json",
         "X-SelectedDb-Key": REALNEX_SELECTED_DB
     }
-    payload = build_full_payload(user3_value)
+    payload = build_payload(user3_value)
     return requests.put(url, json=payload, headers=headers)
 
 
 def main():
     if not REALNEX_API_TOKEN or not REALNEX_SELECTED_DB:
-        raise SystemExit("Missing REALNEX_API_TOKEN or REALNEX_SELECTED_DB in environment")
+        raise SystemExit("Missing REALNEX_API_TOKEN or REALNEX_SELECTED_DB in environment.")
 
-    df = download_csv(GOOGLE_DRIVE_FILE_ID)
+    file_id = GOOGLE_DRIVE_FILE_ID or DEFAULT_FILE_ID
+    df = download_csv(file_id)
 
     if "contact_key" not in df.columns or "GPT Score" not in df.columns:
-        raise SystemExit("CSV must contain 'contact_key' and 'GPT Score' columns")
+        raise SystemExit("CSV must contain 'contact_key' and 'GPT Score' columns.")
 
     for _, row in df.iterrows():
         contact_key = str(row["contact_key"]).strip()
@@ -68,9 +60,9 @@ def main():
         if contact_key and pd.notna(score):
             resp = update_contact(contact_key, str(score))
             if resp.status_code >= 400:
-                print(f"Failed to update {contact_key}: {resp.status_code} {resp.text}")
+                print(f"❌ Failed to update {contact_key}: {resp.status_code} - {resp.text}")
             else:
-                print(f"Updated {contact_key} → user3 = {score}")
+                print(f"✅ Updated {contact_key} with score {score}")
 
 
 if __name__ == "__main__":
