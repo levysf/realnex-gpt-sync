@@ -1,4 +1,4 @@
-from flask import Flask, jsonify
+from flask import Flask, request, jsonify
 import os
 import csv
 import requests
@@ -6,37 +6,43 @@ import time
 
 app = Flask(__name__)
 
-CSV_FILE_PATH = "RealNex API Test.csv"
+UPLOAD_FILENAME = "uploaded.csv"
 REALNEX_API_KEY = os.getenv("REALNEX_API_KEY")
 REALNEX_API_BASE = "https://api.realnex.com/api/v1"
 
-# Fail fast if API key is not set
+# Validate API key early
 if not REALNEX_API_KEY:
     raise RuntimeError("REALNEX_API_KEY environment variable is required")
 
+# Health check
 @app.route("/", methods=["GET"])
 def index():
-    return "RealNex GPT Sync service is live", 200
+    return "✅ RealNex GPT Sync is live.", 200
 
+# Upload CSV
+@app.route("/upload", methods=["PUT"])
+def upload_file():
+    try:
+        with open(UPLOAD_FILENAME, "wb") as f:
+            f.write(request.data)
+        return "✅ Upload successful", 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# Batch push endpoint
 @app.route("/batch_push", methods=["POST"])
 def batch_push():
-    if not os.path.exists(CSV_FILE_PATH):
-        return jsonify({"error": f"CSV file not found at {CSV_FILE_PATH}"}), 400
+    if not os.path.exists(UPLOAD_FILENAME):
+        return jsonify({"error": f"CSV file not found: {UPLOAD_FILENAME}"}), 400
 
     results = []
-    with open(CSV_FILE_PATH, newline="", encoding="utf-8") as csvfile:
+    with open(UPLOAD_FILENAME, newline="", encoding="utf-8") as csvfile:
         reader = csv.DictReader(csvfile)
-        batch = []
-        for row in reader:
-            contact_key = row.get("contact_key", "").strip()
-            if not contact_key:
-                continue
-            payload = {
-                "user3": row.get("GPT Score", "").strip(),
-                "user4": row.get("Next Action", "").strip(),
-                "user8": row.get("Last Scored", "").strip(),
-            }
-            batch.append((contact_key, payload))
+        batch = [(row.get("contact_key"), {
+            "user3": row.get("GPT Score", ""),
+            "user4": row.get("Next Action", ""),
+            "user8": row.get("Last Scored", "")
+        }) for row in reader if row.get("contact_key")]
 
     for i, (contact_key, payload) in enumerate(batch):
         url = f"{REALNEX_API_BASE}/Crm/contact/{contact_key}"
@@ -44,15 +50,21 @@ def batch_push():
             "Authorization": f"Bearer {REALNEX_API_KEY}",
             "Content-Type": "application/json"
         }
-        response = requests.put(url, json=payload, headers=headers)
-        results.append({
-            "contact_key": contact_key,
-            "status": response.status_code,
-            "body": response.text
-        })
+        try:
+            response = requests.put(url, json=payload, headers=headers)
+            results.append({
+                "contact_key": contact_key,
+                "status": response.status_code,
+                "body": response.text
+            })
+        except Exception as e:
+            results.append({
+                "contact_key": contact_key,
+                "error": str(e)
+            })
 
         if (i + 1) % 100 == 0:
-            time.sleep(1)
+            time.sleep(1)  # throttle after 100 requests
 
     return jsonify({"results": results}), 200
 
