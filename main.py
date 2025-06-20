@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# Load environment variables
+# Environment variables
 REALNEX_API_TOKEN = os.getenv('REALNEX_API_KEY')
 REALNEX_SELECTED_DB = os.getenv('REALNEX_SELECTED_DB')
 GOOGLE_DRIVE_FILE_ID = os.getenv('GOOGLE_DRIVE_FILE_ID') or "1uQVIDe2Jmi8CqyJtQikXZhn8cuc03VOk"
@@ -19,9 +19,13 @@ REALNEX_API_BASE = "https://sync.realnex.com/api/v1"
 
 def download_csv(file_id: str) -> pd.DataFrame:
     url = f"https://drive.google.com/uc?export=download&id={file_id}"
-    response = requests.get(url, timeout=30)
-    response.raise_for_status()
-    return pd.read_csv(StringIO(response.text))
+    try:
+        response = requests.get(url, timeout=30)
+        response.raise_for_status()
+        return pd.read_csv(StringIO(response.text))
+    except Exception as e:
+        logger.error(f"Failed to download CSV: {e}")
+        raise
 
 def build_payload(user3_value: str) -> dict:
     return {
@@ -50,44 +54,37 @@ def update_contact(contact_key: str, user3_value: str) -> requests.Response:
     payload = build_payload(user3_value)
     return requests.put(url, json=payload, headers=headers)
 
-def run_sync() -> dict:
+@app.route("/run")
+def run_update():
     if not REALNEX_API_TOKEN or not REALNEX_SELECTED_DB:
-        return {"error": "Missing REALNEX_API_TOKEN or REALNEX_SELECTED_DB"}
+        return jsonify({"error": "Missing REALNEX_API_KEY or REALNEX_SELECTED_DB"}), 400
 
     try:
         df = download_csv(GOOGLE_DRIVE_FILE_ID)
     except Exception as e:
-        return {"error": f"CSV download failed: {str(e)}"}
+        return jsonify({"error": str(e)}), 500
 
     if "contact_key" not in df.columns or "GPT Score" not in df.columns:
-        return {"error": "CSV must contain 'contact_key' and 'GPT Score'"}
+        return jsonify({"error": "CSV must contain 'contact_key' and 'GPT Score' columns"}), 400
 
-    results = []
+    total = 0
+    failures = []
+
     for _, row in df.iterrows():
         contact_key = str(row["contact_key"]).strip()
         score = row["GPT Score"]
         if contact_key and pd.notna(score):
             resp = update_contact(contact_key, str(score))
-            status = {
-                "contact": contact_key,
-                "score": score,
-                "status": resp.status_code,
-                "ok": resp.status_code < 400
-            }
-            logger.info(status)
-            results.append(status)
+            if resp.status_code >= 400:
+                failures.append({"contact": contact_key, "status": resp.status_code, "message": resp.text})
+            else:
+                total += 1
 
-    return {"updated": results}
+    return jsonify({"updated": total, "failures": failures})
 
-# Flask route for Render health and manual trigger
-@app.route("/run", methods=["GET"])
-def trigger_run():
-    result = run_sync()
-    return jsonify(result)
-
-@app.route("/", methods=["GET"])
+@app.route("/")
 def home():
-    return "RealNex Sync Service is up and running."
+    return "✅ Server is running. Visit /run to trigger updates."
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000)
