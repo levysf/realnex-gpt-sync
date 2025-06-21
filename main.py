@@ -45,71 +45,101 @@ headers = {
 
 @app.route("/")
 def test_realnex_fields():
-    # Test both regular and /full endpoints with correct structure
-    regular_endpoint = f"https://sync.realnex.com/api/v1/Crm/contact/{REALNEX_CONTACT_ID}"
+    # Use the working full endpoint
     full_endpoint = f"https://sync.realnex.com/api/v1/Crm/contact/{REALNEX_CONTACT_ID}/full"
+    regular_endpoint = f"https://sync.realnex.com/api/v1/Crm/contact/{REALNEX_CONTACT_ID}"
     
-    # Also test with URL-encoded curly braces (like in the curl example)
-    contact_id_encoded = f"%7B{REALNEX_CONTACT_ID}%7D"
-    full_endpoint_encoded = f"https://sync.realnex.com/api/v1/Crm/contact/{contact_id_encoded}/full"
+    # Try the special headers from the curl example
+    odata_headers = {
+        "Authorization": f"Bearer {REALNEX_API_KEY}",
+        "accept": "application/json;odata.metadata=minimal;odata.streaming=true",
+        "Content-Type": "application/json"
+    }
     
     results = {}
     
-    # First, get the full contact data
+    # Get the full contact data
     try:
-        full_response = requests.get(full_endpoint, headers=headers, timeout=10)
+        full_response = requests.get(full_endpoint, headers=odata_headers, timeout=10)
         results["GET_full_contact"] = {
             "status": full_response.status_code,
-            "success": full_response.status_code < 400,
-            "endpoint": full_endpoint,
-            "body_preview": full_response.text[:800] if full_response.text else ""
+            "success": full_response.status_code < 400
         }
         
         if full_response.status_code < 400:
             full_contact_data = full_response.json()
             
-            # Test 1: Update fax field (root level)
-            full_contact_data["fax"] = "415-555-FAX-TEST"
+            # Test 1: Try PUT with OData headers
+            test_contact = full_contact_data.copy()
+            test_contact["fax"] = "415-555-ODATA"
             
-            fax_update_response = requests.put(regular_endpoint, headers=headers, json=full_contact_data, timeout=10)
-            results["PUT_fax_update"] = {
-                "status": fax_update_response.status_code,
-                "success": fax_update_response.status_code < 400,
-                "body_preview": fax_update_response.text[:500] if fax_update_response.text else "",
-                "approach": "Updated fax field at root level"
+            odata_put_response = requests.put(regular_endpoint, headers=odata_headers, json=test_contact, timeout=10)
+            results["PUT_with_odata_headers"] = {
+                "status": odata_put_response.status_code,
+                "success": odata_put_response.status_code < 400,
+                "body_preview": odata_put_response.text[:500] if odata_put_response.text else ""
             }
             
-            # Test 2: Update user3 in the correct nested location
-            if "investorData" in full_contact_data and "userFields" in full_contact_data["investorData"]:
-                full_contact_data_copy = full_response.json()  # Fresh copy
-                full_contact_data_copy["investorData"]["userFields"]["user3"] = "GPT-SCORE-SUCCESS"
-                
-                user3_update_response = requests.put(regular_endpoint, headers=headers, json=full_contact_data_copy, timeout=10)
-                results["PUT_user3_nested"] = {
-                    "status": user3_update_response.status_code,
-                    "success": user3_update_response.status_code < 400,
-                    "body_preview": user3_update_response.text[:500] if user3_update_response.text else "",
-                    "approach": "Updated investorData.userFields.user3",
-                    "current_user3_value": full_contact_data.get("investorData", {}).get("userFields", {}).get("user3")
-                }
+            # Test 2: Try PATCH instead of PUT
+            patch_data = {"fax": "415-555-PATCH"}
+            patch_response = requests.patch(regular_endpoint, headers=odata_headers, json=patch_data, timeout=10)
+            results["PATCH_with_odata"] = {
+                "status": patch_response.status_code,
+                "success": patch_response.status_code < 400,
+                "body_preview": patch_response.text[:500] if patch_response.text else ""
+            }
             
-            # Test 3: Try with URL-encoded endpoint
-            encoded_response = requests.get(full_endpoint_encoded, headers=headers, timeout=10)
-            results["GET_encoded_endpoint"] = {
-                "status": encoded_response.status_code,
-                "success": encoded_response.status_code < 400,
-                "endpoint": full_endpoint_encoded,
-                "note": "Testing with URL-encoded curly braces like in curl example"
+            # Test 3: Try POST to the regular endpoint
+            post_contact = full_contact_data.copy()
+            post_contact["investorData"]["userFields"]["user3"] = "POST-TEST-USER3"
+            
+            post_response = requests.post(regular_endpoint, headers=odata_headers, json=post_contact, timeout=10)
+            results["POST_with_user3_update"] = {
+                "status": post_response.status_code,
+                "success": post_response.status_code < 400,
+                "body_preview": post_response.text[:500] if post_response.text else ""
+            }
+            
+            # Test 4: Check if there's a different update endpoint
+            update_endpoints = [
+                f"https://sync.realnex.com/api/v1/Crm/contact/{REALNEX_CONTACT_ID}/update",
+                f"https://sync.realnex.com/api/v1/Crm/contact/update/{REALNEX_CONTACT_ID}",
+                f"https://sync.realnex.com/api/v1/Crm/updatecontact/{REALNEX_CONTACT_ID}"
+            ]
+            
+            update_results = {}
+            for endpoint in update_endpoints:
+                try:
+                    update_response = requests.post(endpoint, headers=odata_headers, json={"fax": "415-UPDATE-TEST"}, timeout=10)
+                    update_results[endpoint] = {
+                        "status": update_response.status_code,
+                        "success": update_response.status_code < 400
+                    }
+                except:
+                    update_results[endpoint] = {"error": "Request failed"}
+            
+            results["update_endpoint_tests"] = update_results
+            
+            # Test 5: Try minimal payload that just includes the ID and changed field
+            minimal_payload = {
+                "key": full_contact_data["key"],
+                "fax": "415-MINIMAL"
+            }
+            
+            minimal_response = requests.put(regular_endpoint, headers=odata_headers, json=minimal_payload, timeout=10)
+            results["PUT_minimal_payload"] = {
+                "status": minimal_response.status_code,
+                "success": minimal_response.status_code < 400,
+                "body_preview": minimal_response.text[:500] if minimal_response.text else ""
             }
             
     except Exception as e:
-        results["GET_full_contact"] = {"error": str(e)}
+        results["error"] = str(e)
     
     return {
         "contact_id": REALNEX_CONTACT_ID,
-        "discovery": "Found /full endpoint and correct user3 location: investorData.userFields.user3",
         "test_results": results,
-        "next_step": "If this works, we can build the full sync script!"
+        "status": "Testing different HTTP methods and headers to find working update approach"
     }
 
 if __name__ == "__main__":
