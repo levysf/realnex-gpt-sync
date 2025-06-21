@@ -5,21 +5,25 @@ import requests
 from google.oauth2.service_account import Credentials
 
 # ------------------------------
-# STEP 1 – Load data from Google Sheet
+# STEP 1 – Connect to Google Sheet
 # ------------------------------
 
-# Load Google service account credentials from env
+# Load Google service account from environment
 service_info = json.loads(os.environ["GOOGLE_SERVICE_ACCOUNT_KEY"])
 creds = Credentials.from_service_account_info(
-    service_info, scopes=["https://www.googleapis.com/auth/spreadsheets"]
+    service_info,
+    scopes=[
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"  # Needed to open by title
+    ]
 )
 client = gspread.authorize(creds)
 
-# Open Google Sheet and read data from the correct tab
+# Open the spreadsheet by name and sheet tab
 spreadsheet = client.open("RealNex API Test")
-sheet = spreadsheet.worksheet("RealNex API Test")  # Tab name must match
+sheet = spreadsheet.worksheet("RealNex API Test")  # Tab name must match exactly
 
-# Read rows into dictionaries
+# Read rows from the sheet
 rows = sheet.get_all_records()
 
 # Parse score updates
@@ -29,7 +33,7 @@ score_updates = [
 ]
 
 # ------------------------------
-# STEP 2 – Push scores to RealNex
+# STEP 2 – Push to RealNex fax field
 # ------------------------------
 
 REALNEX_API_TOKEN = os.environ["REALNEX_API_KEY"]
@@ -38,12 +42,13 @@ headers = {
     "Content-Type": "application/json"
 }
 
+# Loop and update each contact's fax field
 for entry in score_updates:
     payload = {
-        "fax": str(entry["score"])
+        "fax": str(entry["score"])  # Fax must be a string
     }
     url = f"https://api.realnex.com/api/investor/{entry['contact_key']}"
-    
+
     try:
         response = requests.put(url, headers=headers, json=payload)
         if response.status_code == 200:
