@@ -1,50 +1,50 @@
 import os
+import json
+import pandas as pd
 import requests
 import gspread
-from google.oauth2.service_account import Credentials
+from oauth2client.service_account import ServiceAccountCredentials
 
-# Load credentials from environment variables
-REALNEX_API_KEY = os.environ["REALNEX_API_KEY"]
-GOOGLE_SHEET_NAME = os.environ["GOOGLE_SHEET_NAME"]
+# ENV
 GOOGLE_CREDS_JSON = os.environ["GOOGLE_CREDS_JSON"]
+GOOGLE_SHEET_NAME = os.environ["GOOGLE_SHEET_NAME"]
+REALNEX_API_KEY = os.environ["REALNEX_API_KEY"]
 
-# Authenticate with Google Sheets
+# Auth: Google Sheets
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-creds = Credentials.from_service_account_info(eval(GOOGLE_CREDS_JSON), scopes=scope)
+creds = ServiceAccountCredentials.from_json_keyfile_dict(json.loads(GOOGLE_CREDS_JSON), scope)
 client = gspread.authorize(creds)
-
-# Open the spreadsheet and worksheet
 spreadsheet = client.open(GOOGLE_SHEET_NAME)
-worksheet = spreadsheet.worksheet(GOOGLE_SHEET_NAME)
+sheet = spreadsheet.sheet1
+data = sheet.get_all_records()
+df = pd.DataFrame(data)
 
-# Read all data
-data = worksheet.get_all_records()
+# TEST VALUE TO PUSH
+TEST_CONTACT_KEY = df.iloc[0]["contact_key"]
+TEST_VALUE = f"PUT_TEST_{os.environ.get('RENDER_GIT_COMMIT', 'manual')}"
 
-# RealNex API setup
+# PUT to Fax Field
+put_url = f"https://sync.realnex.com/api/v1/contact/{TEST_CONTACT_KEY}"
 headers = {
     "Authorization": f"Bearer {REALNEX_API_KEY}",
     "Content-Type": "application/json"
 }
-url_template = "https://sync.realnex.com/v1/contacts/{}"
+payload = {
+    "fax": TEST_VALUE
+}
 
-# Loop through rows and update RealNex contacts
-for row in data:
-    contact_key = row.get("contact_key")
-    gpt_score = row.get("GPT Score")
-    if not contact_key or gpt_score is None:
-        print(f"Skipping row: {row}")
-        continue
+res = requests.put(put_url, headers=headers, data=json.dumps(payload))
 
-    # Prepare payload (updating the `fax` field)
-    payload = {
-        "fax": str(gpt_score)
+print("=== PUT RESPONSE ===")
+print("Status Code:", res.status_code)
+print("Response Body:", res.text)
+
+# Optional fallback test to user_3 if fax fails
+if res.status_code >= 400:
+    fallback_payload = {
+        "user_3": TEST_VALUE
     }
-
-    url = url_template.format(contact_key)
-    response = requests.put(url, headers=headers, json=payload)
-
-    if response.status_code == 200:
-        print(f"✅ Updated contact {contact_key} with score {gpt_score}")
-    else:
-        print(f"❌ Failed to update contact {contact_key}: {response.status_code}")
-        print("Response:", response.text)
+    res2 = requests.put(put_url, headers=headers, data=json.dumps(fallback_payload))
+    print("=== FALLBACK TO user_3 ===")
+    print("Status Code:", res2.status_code)
+    print("Response Body:", res2.text)
