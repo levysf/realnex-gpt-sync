@@ -1,59 +1,53 @@
 import os
 import json
+import pandas as pd
 import gspread
 import requests
 from google.oauth2.service_account import Credentials
 
-# ------------------------------
-# STEP 1 – Connect to Google Sheet
-# ------------------------------
+# === LOAD SECRETS FROM ENV ===
+GOOGLE_DRIVE_FILE_ID = os.environ["GOOGLE_DRIVE_FILE_ID"]
+GOOGLE_SERVICE_ACCOUNT_KEY = os.environ["GOOGLE_SERVICE_ACCOUNT_KEY"]
+REALNEX_API_KEY = os.environ["REALNEX_API_KEY"]
 
-# Load Google service account from environment
-service_info = json.loads(os.environ["GOOGLE_SERVICE_ACCOUNT_KEY"])
-creds = Credentials.from_service_account_info(
-    service_info,
-    scopes=[
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive"  # Needed to open by title
-    ]
-)
-client = gspread.authorize(creds)
+# === AUTH GOOGLE SHEETS ===
+service_account_info = json.loads(GOOGLE_SERVICE_ACCOUNT_KEY)
+scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+credentials = Credentials.from_service_account_info(service_account_info, scopes=scopes)
+client = gspread.authorize(credentials)
 
-# Open the spreadsheet by name and sheet tab
-spreadsheet = client.open("RealNex API Test")
-sheet = spreadsheet.worksheet("RealNex API Test")  # Tab name must match exactly
+# Open by file ID
+spreadsheet = client.open_by_key(GOOGLE_DRIVE_FILE_ID)
+worksheet = spreadsheet.sheet1
+data = pd.DataFrame(worksheet.get_all_records())
 
-# Read rows from the sheet
-rows = sheet.get_all_records()
+# === REALNEX CONFIG ===
+REALNEX_BASE_URL = "https://api.realnex.com"
 
-# Parse score updates
-score_updates = [
-    {"contact_key": row["contact_key"], "score": row["GPT Score"]}
-    for row in rows if row.get("contact_key") and row.get("GPT Score") is not None
-]
+# === SYNC LOOP ===
+for i, row in data.iterrows():
+    contact_key = row.get("contact_key") or row.get("account_key")
+    score = row.get("GPT Score")
+    
+    if not contact_key or pd.isna(score):
+        continue
 
-# ------------------------------
-# STEP 2 – Push to RealNex fax field
-# ------------------------------
-
-REALNEX_API_TOKEN = os.environ["REALNEX_API_KEY"]
-headers = {
-    "Authorization": f"Bearer {REALNEX_API_TOKEN}",
-    "Content-Type": "application/json"
-}
-
-# Loop and update each contact's fax field
-for entry in score_updates:
-    payload = {
-        "fax": str(entry["score"])  # Fax must be a string
+    url = f"{REALNEX_BASE_URL}/v2/contacts/{contact_key}"
+    headers = {
+        "accept": "application/json",
+        "content-type": "application/json",
+        "x-api-key": REALNEX_API_KEY
     }
-    url = f"https://api.realnex.com/api/investor/{entry['contact_key']}"
+
+    payload = {
+        "fax": str(score)  # Writing GPT Score into the fax field
+    }
 
     try:
-        response = requests.put(url, headers=headers, json=payload)
+        response = requests.put(url, headers=headers, data=json.dumps(payload))
         if response.status_code == 200:
-            print(f"✅ Updated {entry['contact_key']} with GPT Score: {entry['score']}")
+            print(f"✅ Updated contact {contact_key} with score {score}")
         else:
-            print(f"❌ {response.status_code} for {entry['contact_key']}: {response.text}")
+            print(f"❌ Error for {contact_key}: {response.status_code} - {response.text}")
     except Exception as e:
-        print(f"❌ Exception for {entry['contact_key']}: {e}")
+        print(f"⚠️ Exception for {contact_key}: {str(e)}")
