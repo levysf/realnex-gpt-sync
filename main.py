@@ -45,88 +45,79 @@ headers = {
 
 @app.route("/")
 def test_realnex_fields():
-    # Test different base URLs and approaches
-    base_urls = [
-        "https://sync.realnex.com",
-        "https://api.realnex.com", 
-        "https://app.realnex.com",
-        "https://www.realnex.com"
-    ]
+    # Based on Swagger docs: GET/PUT /api/v1/Crm/contact/{contactKey}
+    correct_endpoint = f"https://sync.realnex.com/api/v1/Crm/contact/{REALNEX_CONTACT_ID}"
     
     results = {}
     
-    # First, let's try some simple GET requests to see what's available
-    for i, base_url in enumerate(base_urls):
-        base_name = f"base_{i+1}"
-        results[base_name] = {"base_url": base_url}
+    print(f"Testing correct endpoint: {correct_endpoint}")
+    
+    # First, try GET to see if contact exists
+    try:
+        get_response = requests.get(correct_endpoint, headers=headers, timeout=10)
+        results["GET_contact"] = {
+            "url": correct_endpoint,
+            "status": get_response.status_code,
+            "body_preview": get_response.text[:500] if get_response.text else "",
+            "success": get_response.status_code < 400
+        }
         
-        # Try some common endpoints
-        test_endpoints = [
-            f"{base_url}/",
-            f"{base_url}/api",
-            f"{base_url}/v1",
-            f"{base_url}/api/v1",
-            f"{base_url}/swagger",
-            f"{base_url}/docs"
-        ]
+        # If GET works, try PUT to update fax field
+        if get_response.status_code < 400:
+            put_fax_payload = {"fax": "415-555-0000"}
+            put_fax_response = requests.put(correct_endpoint, headers=headers, json=put_fax_payload, timeout=10)
+            results["PUT_fax"] = {
+                "status": put_fax_response.status_code,
+                "body_preview": put_fax_response.text[:500] if put_fax_response.text else "",
+                "success": put_fax_response.status_code < 400,
+                "payload_sent": put_fax_payload
+            }
+            
+            # Also try PUT to update user_3 field
+            put_user3_payload = {"user_3": "TESTING USER 3 FIELD"}
+            put_user3_response = requests.put(correct_endpoint, headers=headers, json=put_user3_payload, timeout=10)
+            results["PUT_user_3"] = {
+                "status": put_user3_response.status_code,
+                "body_preview": put_user3_response.text[:500] if put_user3_response.text else "",
+                "success": put_user3_response.status_code < 400,
+                "payload_sent": put_user3_payload
+            }
+            
+            # Try PATCH as alternative
+            patch_payload = {"fax": "415-555-1111"}
+            patch_response = requests.patch(correct_endpoint, headers=headers, json=patch_payload, timeout=10)
+            results["PATCH_fax"] = {
+                "status": patch_response.status_code,
+                "body_preview": patch_response.text[:500] if patch_response.text else "",
+                "success": patch_response.status_code < 400,
+                "payload_sent": patch_payload
+            }
         
-        for endpoint in test_endpoints:
-            try:
-                response = requests.get(endpoint, timeout=5)
-                if response.status_code < 400:
-                    results[base_name][f"working_endpoint"] = {
-                        "url": endpoint,
-                        "status": response.status_code,
-                        "content_preview": response.text[:100] if response.text else ""
-                    }
-                    break
-            except:
-                continue
+    except Exception as e:
+        results["GET_contact"] = {
+            "url": correct_endpoint,
+            "error": str(e)
+        }
     
-    # Also test our contact endpoint with different HTTP methods
-    contact_tests = {}
-    test_url = f"https://sync.realnex.com/api/v1/contact/{REALNEX_CONTACT_ID}"
-    
-    # Try GET first to see if contact exists
+    # Also test the base CRM endpoint to see what's available
+    base_crm_endpoint = "https://sync.realnex.com/api/v1/Crm"
     try:
-        get_response = requests.get(test_url, headers=headers, timeout=10)
-        contact_tests["GET"] = {
-            "status_code": get_response.status_code,
-            "body": get_response.text[:200] if get_response.text else ""
+        base_response = requests.get(base_crm_endpoint, headers=headers, timeout=10)
+        results["base_crm_endpoint"] = {
+            "url": base_crm_endpoint,
+            "status": base_response.status_code,
+            "body_preview": base_response.text[:300] if base_response.text else ""
         }
     except Exception as e:
-        contact_tests["GET"] = {"error": str(e)}
-    
-    # Try PATCH instead of PUT
-    try:
-        patch_response = requests.patch(test_url, headers=headers, json={"fax": "415-555-0000"}, timeout=10)
-        contact_tests["PATCH"] = {
-            "status_code": patch_response.status_code,
-            "body": patch_response.text[:200] if patch_response.text else ""
-        }
-    except Exception as e:
-        contact_tests["PATCH"] = {"error": str(e)}
-    
-    # Try POST 
-    try:
-        post_response = requests.post(test_url, headers=headers, json={"fax": "415-555-0000"}, timeout=10)
-        contact_tests["POST"] = {
-            "status_code": post_response.status_code,
-            "body": post_response.text[:200] if post_response.text else ""
-        }
-    except Exception as e:
-        contact_tests["POST"] = {"error": str(e)}
+        results["base_crm_endpoint"] = {"error": str(e)}
     
     return {
         "contact_id": REALNEX_CONTACT_ID,
-        "api_key_present": bool(REALNEX_API_KEY),
-        "api_key_length": len(REALNEX_API_KEY) if REALNEX_API_KEY else 0,
-        "base_url_tests": results,
-        "contact_method_tests": contact_tests,
-        "headers_used": {
-            "Authorization": f"Bearer {REALNEX_API_KEY[:10]}..." if REALNEX_API_KEY else "None",
-            "Content-Type": headers.get("Content-Type"),
-            "accept": headers.get("accept")
+        "correct_endpoint_found": "YES - /api/v1/Crm/contact/{contactKey}",
+        "test_results": results,
+        "summary": {
+            "endpoint_used": correct_endpoint,
+            "expecting": "200 status codes for GET and PUT operations"
         }
     }
 
