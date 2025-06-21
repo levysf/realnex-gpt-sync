@@ -1,40 +1,42 @@
 import os
 import json
-import pandas as pd
-import gspread
 import requests
+import gspread
 from google.oauth2.service_account import Credentials
 
-# === LOAD SECRETS FROM ENV ===
-GOOGLE_SERVICE_ACCOUNT_KEY = os.environ["GOOGLE_SERVICE_ACCOUNT_KEY"]
+# === ENV VARS ===
 REALNEX_API_KEY = os.environ["REALNEX_API_KEY"]
+GOOGLE_SERVICE_ACCOUNT_KEY = os.environ["GOOGLE_SERVICE_ACCOUNT_KEY"]
 
-# === AUTH GOOGLE SHEETS ===
+# === GOOGLE SHEETS AUTH ===
 service_account_info = json.loads(GOOGLE_SERVICE_ACCOUNT_KEY)
-scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+scopes = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive"
+]
 credentials = Credentials.from_service_account_info(service_account_info, scopes=scopes)
 client = gspread.authorize(credentials)
 
-# === READ SHEET ===
+# === SHEET LOAD ===
 spreadsheet = client.open("RealNex API Test")
-worksheet = spreadsheet.worksheet("RealNex API Test")  # Exact tab name
-data = pd.DataFrame(worksheet.get_all_records())
+worksheet = spreadsheet.worksheet("RealNex API Test")
+rows = worksheet.get_all_records()
 
-# === SYNC LOOP ===
-REALNEX_BASE_URL = "https://api.realnex.com"
+# === REALNEX v1 SYNC ===
+REALNEX_BASE_URL = "https://sync.realnex.com/api/investor"
 headers = {
     "Authorization": f"Bearer {REALNEX_API_KEY}",
     "Content-Type": "application/json"
 }
 
-for i, row in data.iterrows():
+for row in rows:
     contact_key = row.get("contact_key")
     score = row.get("GPT Score")
 
-    if not contact_key or pd.isna(score):
+    if not contact_key or score in [None, ""]:
         continue
 
-    url = f"{REALNEX_BASE_URL}/api/investor/{contact_key}"
+    url = f"{REALNEX_BASE_URL}/{contact_key}"
     payload = {
         "fax": str(score)
     }
@@ -42,10 +44,10 @@ for i, row in data.iterrows():
     try:
         response = requests.put(url, headers=headers, json=payload)
         if response.status_code == 200:
-            print(f"✅ Updated contact {contact_key} with GPT Score {score}")
+            print(f"✅ Updated {contact_key} with GPT Score: {score}")
         else:
-            print(f"❌ Failed for {contact_key} - {response.status_code}: {response.text}")
+            print(f"❌ Failed for {contact_key} — {response.status_code}: {response.text}")
     except Exception as e:
-        print(f"⚠️ Exception for {contact_key}: {str(e)}")
+        print(f"⚠️ Error updating {contact_key}: {e}")
 
-print("🎉 All GPT Scores synced to RealNex fax field.")
+print("🎉 All done syncing to RealNex!")
