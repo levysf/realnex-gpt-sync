@@ -11,8 +11,24 @@ app = Flask(__name__)
 scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
 creds = Credentials.from_service_account_info(json.loads(os.environ["GOOGLE_CREDS_JSON"]), scopes=scope)
 client = gspread.authorize(creds)
-spreadsheet = client.open("GPT Scorebot - Render Test")
-worksheet = spreadsheet.sheet1
+
+# Use environment variable for sheet name
+GOOGLE_SHEET_NAME = os.environ.get("GOOGLE_SHEET_NAME", "RealNex API Test")  # Updated default
+
+try:
+    spreadsheet = client.open(GOOGLE_SHEET_NAME)
+    worksheet = spreadsheet.sheet1
+    print(f"✅ Successfully connected to Google Sheet: {GOOGLE_SHEET_NAME}")
+except Exception as e:
+    print(f"❌ Failed to open Google Sheet '{GOOGLE_SHEET_NAME}': {e}")
+    print("Available sheets:")
+    try:
+        sheets = client.list()
+        for sheet in sheets[:10]:  # Show first 10 sheets
+            print(f"  - {sheet.title}")
+    except:
+        print("  Could not list available sheets")
+    raise
 
 # Get RealNex environment variables
 REALNEX_API_KEY = os.environ["REALNEX_API_KEY"]
