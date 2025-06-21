@@ -15,9 +15,9 @@ scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapi
 credentials = Credentials.from_service_account_info(service_account_info, scopes=scopes)
 client = gspread.authorize(credentials)
 
-# ✅ OPEN BY SHEET NAME
+# Open spreadsheet and worksheet
 spreadsheet = client.open("RealNex API Test")
-worksheet = spreadsheet.worksheet("RealNex API Test")  # tab name
+worksheet = spreadsheet.worksheet("RealNex API Test")
 data = pd.DataFrame(worksheet.get_all_records())
 
 # === REALNEX CONFIG ===
@@ -25,12 +25,12 @@ REALNEX_BASE_URL = "https://api.realnex.com"
 
 # === SYNC LOOP ===
 for i, row in data.iterrows():
-    contact_key = row.get("contact_key") or row.get("account_key")
+    contact_key = row.get("contact_key")
     score = row.get("GPT Score")
-    
+
     if not contact_key or pd.isna(score):
         continue
-        
+
     url = f"{REALNEX_BASE_URL}/v2/contacts/{contact_key}"
     headers = {
         "accept": "application/json",
@@ -40,14 +40,14 @@ for i, row in data.iterrows():
     payload = {
         "fax": str(score)  # Writing GPT Score into the fax field
     }
-    
+
     try:
         response = requests.put(url, headers=headers, data=json.dumps(payload))
-        if response.status_code == 200:
-            print(f"✅ Updated contact {contact_key} with score {score}")
-        else:
-            print(f"❌ Error for {contact_key}: {response.status_code} - {response.text}")
+        print(f"\n➡️ PUT {url}")
+        print(f"📦 Payload: {payload}")
+        print(f"📬 Status: {response.status_code}")
+        print(f"📨 Response: {response.text}")
     except Exception as e:
         print(f"⚠️ Exception for {contact_key}: {str(e)}")
 
-print("🎉 Sync completed!")
+print("\n🎉 Sync completed!")
