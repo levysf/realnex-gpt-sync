@@ -53,47 +53,57 @@ def test_realnex_fields():
         "user_3": "TESTING USER 3 FIELD"
     }
     
-    # Fixed URL - should be /api/v1/contact/ (singular, not plural)
-    url = f"https://sync.realnex.com/api/v1/contact/{REALNEX_CONTACT_ID}"
+    # Try multiple possible endpoints
+    possible_endpoints = [
+        f"https://sync.realnex.com/api/v1/contact/{REALNEX_CONTACT_ID}",
+        f"https://sync.realnex.com/api/v1/contacts/{REALNEX_CONTACT_ID}",
+        f"https://sync.realnex.com/v1/contact/{REALNEX_CONTACT_ID}",
+        f"https://sync.realnex.com/v1/contacts/{REALNEX_CONTACT_ID}",
+        f"https://sync.realnex.com/api/contact/{REALNEX_CONTACT_ID}",
+        f"https://sync.realnex.com/contact/{REALNEX_CONTACT_ID}"
+    ]
     
-    print(f"Testing with URL: {url}")
-    print(f"Contact ID: {REALNEX_CONTACT_ID}")
+    results = {}
     
-    # Try fax field with better error handling
-    try:
-        fax_response = requests.put(url, headers=headers, json=test_payload_fax, timeout=30)
-        fax_result = {
-            "status_code": fax_response.status_code,
-            "body": fax_response.text,
-            "success": fax_response.status_code < 400
-        }
-    except Exception as e:
-        fax_result = {
-            "status_code": 0,
-            "body": f"Request failed: {str(e)}",
-            "success": False
-        }
-    
-    # Try user_3 field
-    try:
-        user3_response = requests.put(url, headers=headers, json=test_payload_user_3, timeout=30)
-        user3_result = {
-            "status_code": user3_response.status_code,
-            "body": user3_response.text,
-            "success": user3_response.status_code < 400
-        }
-    except Exception as e:
-        user3_result = {
-            "status_code": 0,
-            "body": f"Request failed: {str(e)}",
-            "success": False
-        }
+    for i, url in enumerate(possible_endpoints):
+        endpoint_name = f"endpoint_{i+1}"
+        print(f"Testing endpoint {i+1}: {url}")
+        
+        try:
+            # Try fax field
+            fax_response = requests.put(url, headers=headers, json=test_payload_fax, timeout=10)
+            
+            results[endpoint_name] = {
+                "url": url,
+                "fax_response": {
+                    "status_code": fax_response.status_code,
+                    "body": fax_response.text[:200] if fax_response.text else "",
+                    "success": fax_response.status_code < 400
+                }
+            }
+            
+            # If we get a good response, also try user_3
+            if fax_response.status_code < 400:
+                user3_response = requests.put(url, headers=headers, json=test_payload_user_3, timeout=10)
+                results[endpoint_name]["user_3_response"] = {
+                    "status_code": user3_response.status_code,
+                    "body": user3_response.text[:200] if user3_response.text else "",
+                    "success": user3_response.status_code < 400
+                }
+            
+            # Stop testing if we found a working endpoint
+            if fax_response.status_code < 400:
+                break
+                
+        except Exception as e:
+            results[endpoint_name] = {
+                "url": url,
+                "error": str(e)
+            }
     
     return {
-        "test_url": url,
         "contact_id": REALNEX_CONTACT_ID,
-        "fax_response": fax_result,
-        "user_3_response": user3_result
+        "tested_endpoints": results
     }
 
 if __name__ == "__main__":
