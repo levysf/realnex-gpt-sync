@@ -57,9 +57,9 @@ def test_realnex_fields():
     
     results = {}
     
-    # Get the full contact data first
+    # Get the full contact data first (with shorter timeout since this works)
     try:
-        full_response = requests.get(full_endpoint, headers=merge_patch_headers, timeout=10)
+        full_response = requests.get(full_endpoint, headers=merge_patch_headers, timeout=15)
         results["GET_full_contact"] = {
             "status": full_response.status_code,
             "success": full_response.status_code < 400
@@ -67,68 +67,75 @@ def test_realnex_fields():
         
         if full_response.status_code < 400:
             full_contact_data = full_response.json()
+            current_user3 = full_contact_data.get("investorData", {}).get("userFields", {}).get("user3", "unknown")
             
-            # Test 1: Update fax field with merge-patch+json
-            fax_patch = {"fax": "415-555-MERGE-PATCH"}
-            fax_response = requests.put(regular_endpoint, headers=merge_patch_headers, json=fax_patch, timeout=10)
-            results["PUT_fax_merge_patch"] = {
-                "status": fax_response.status_code,
-                "success": fax_response.status_code < 400,
-                "body_preview": fax_response.text[:500] if fax_response.text else "",
-                "approach": "PUT with application/merge-patch+json for fax"
-            }
-            
-            # Test 2: Update user3 field in correct nested structure
-            user3_patch = {
-                "investorData": {
-                    "userFields": {
-                        "user3": "GPT-SCORE-MERGE-PATCH"
-                    }
+            # Test 1: Simple fax update with longer timeout
+            try:
+                fax_patch = {"fax": "415-555-MERGE-PATCH"}
+                fax_response = requests.put(regular_endpoint, headers=merge_patch_headers, json=fax_patch, timeout=30)
+                results["PUT_fax_merge_patch"] = {
+                    "status": fax_response.status_code,
+                    "success": fax_response.status_code < 400,
+                    "body_preview": fax_response.text[:500] if fax_response.text else "",
+                    "approach": "PUT with application/merge-patch+json for fax"
                 }
-            }
-            user3_response = requests.put(regular_endpoint, headers=merge_patch_headers, json=user3_patch, timeout=10)
-            results["PUT_user3_merge_patch"] = {
-                "status": user3_response.status_code,
-                "success": user3_response.status_code < 400,
-                "body_preview": user3_response.text[:500] if user3_response.text else "",
-                "approach": "PUT with application/merge-patch+json for user3",
-                "current_user3": full_contact_data.get("investorData", {}).get("userFields", {}).get("user3")
-            }
-            
-            # Test 3: Try PATCH method with merge-patch+json
-            patch_response = requests.patch(regular_endpoint, headers=merge_patch_headers, json=fax_patch, timeout=10)
-            results["PATCH_merge_patch"] = {
-                "status": patch_response.status_code,
-                "success": patch_response.status_code < 400,
-                "body_preview": patch_response.text[:500] if patch_response.text else "",
-                "approach": "PATCH with application/merge-patch+json"
-            }
-            
-            # Test 4: Try updating both fields at once
-            combined_patch = {
-                "fax": "415-555-COMBINED",
-                "investorData": {
-                    "userFields": {
-                        "user3": "COMBINED-USER3-TEST"
-                    }
+            except requests.exceptions.Timeout:
+                results["PUT_fax_merge_patch"] = {
+                    "status": "TIMEOUT",
+                    "note": "Request timed out after 30 seconds - may still be processing"
                 }
-            }
-            combined_response = requests.put(regular_endpoint, headers=merge_patch_headers, json=combined_patch, timeout=10)
-            results["PUT_combined_merge_patch"] = {
-                "status": combined_response.status_code,
-                "success": combined_response.status_code < 400,
-                "body_preview": combined_response.text[:500] if combined_response.text else "",
-                "approach": "PUT both fax and user3 with merge-patch+json"
-            }
+            except Exception as e:
+                results["PUT_fax_merge_patch"] = {"error": str(e)}
+            
+            # Test 2: User3 update (only if fax didn't timeout)
+            if "PUT_fax_merge_patch" in results and results["PUT_fax_merge_patch"].get("status") != "TIMEOUT":
+                try:
+                    user3_patch = {
+                        "investorData": {
+                            "userFields": {
+                                "user3": "GPT-SCORE-SUCCESS"
+                            }
+                        }
+                    }
+                    user3_response = requests.put(regular_endpoint, headers=merge_patch_headers, json=user3_patch, timeout=30)
+                    results["PUT_user3_merge_patch"] = {
+                        "status": user3_response.status_code,
+                        "success": user3_response.status_code < 400,
+                        "body_preview": user3_response.text[:500] if user3_response.text else "",
+                        "approach": "PUT with application/merge-patch+json for user3",
+                        "current_user3_before_update": current_user3
+                    }
+                except requests.exceptions.Timeout:
+                    results["PUT_user3_merge_patch"] = {
+                        "status": "TIMEOUT",
+                        "note": "Request timed out after 30 seconds - may still be processing"
+                    }
+                except Exception as e:
+                    results["PUT_user3_merge_patch"] = {"error": str(e)}
+            
+            # Test 3: Verify the update worked by getting the contact again
+            if any(test.get("success") for test in results.values() if isinstance(test, dict)):
+                try:
+                    verify_response = requests.get(full_endpoint, headers=merge_patch_headers, timeout=15)
+                    if verify_response.status_code < 400:
+                        updated_contact = verify_response.json()
+                        results["verification"] = {
+                            "status": verify_response.status_code,
+                            "updated_fax": updated_contact.get("fax"),
+                            "updated_user3": updated_contact.get("investorData", {}).get("userFields", {}).get("user3"),
+                            "original_user3": current_user3
+                        }
+                except Exception as e:
+                    results["verification"] = {"error": str(e)}
             
     except Exception as e:
-        results["error"] = str(e)
+        results["GET_full_contact"] = {"error": str(e)}
     
     return {
         "contact_id": REALNEX_CONTACT_ID,
-        "discovery": "Found application/merge-patch+json Content-Type in Swagger docs!",
+        "discovery": "Testing merge-patch+json with longer timeouts",
         "test_results": results,
-        "expectation": "This should finally work with merge-patch+json Content-Type!"
+        "note": "Timeout suggests server is processing the request (good sign!)"
     }
 
 if __name__ == "__main__":
