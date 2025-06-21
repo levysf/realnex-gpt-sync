@@ -1,56 +1,51 @@
 import os
-import json
-import pandas as pd
-import gspread
 import requests
+import gspread
 from google.oauth2.service_account import Credentials
 
-# === LOAD SECRETS FROM ENV ===
-GOOGLE_SERVICE_ACCOUNT_KEY = os.environ["GOOGLE_SERVICE_ACCOUNT_KEY"]
+# Load credentials from environment variables
 REALNEX_API_KEY = os.environ["REALNEX_API_KEY"]
+GOOGLE_DRIVE_FILE_ID = os.environ["GOOGLE_DRIVE_FILE_ID"]
+GOOGLE_SHEET_NAME = os.environ["GOOGLE_SHEET_NAME"]
+GOOGLE_CREDS_JSON = os.environ["GOOGLE_CREDS_JSON"]
 
-# === AUTH GOOGLE SHEETS ===
-service_account_info = json.loads(GOOGLE_SERVICE_ACCOUNT_KEY)
-scopes = ["https://www.googleapis.com/auth/spreadsheets"]
-credentials = Credentials.from_service_account_info(service_account_info, scopes=scopes)
-client = gspread.authorize(credentials)
+# Authenticate with Google Sheets
+scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+creds = Credentials.from_service_account_info(eval(GOOGLE_CREDS_JSON), scopes=scope)
+client = gspread.authorize(creds)
 
-# === LOAD SHEET ===
-spreadsheet = client.open("RealNex API Test")
-worksheet = spreadsheet.worksheet("RealNex API Test")
-data = pd.DataFrame(worksheet.get_all_records())
+# Open the spreadsheet and worksheet
+spreadsheet = client.open_by_key(GOOGLE_DRIVE_FILE_ID)
+worksheet = spreadsheet.worksheet(GOOGLE_SHEET_NAME)
 
-# === REALNEX CONFIG ===
-REALNEX_BASE_URL = "https://sync.realnex.com/api/investor"
-HEADERS = {
+# Read all data
+data = worksheet.get_all_records()
+
+# RealNex API setup
+headers = {
     "Authorization": f"Bearer {REALNEX_API_KEY}",
     "Content-Type": "application/json"
 }
+url_template = "https://sync.realnex.com/v1/contacts/{}"
 
-# === SYNC LOOP ===
-for i, row in data.iterrows():
-    contact_key = row.get("contact_key") or row.get("account_key")
-    score = row.get("GPT Score")
-
-    if not contact_key or pd.isna(score):
+# Loop through rows and update RealNex contacts
+for row in data:
+    contact_key = row.get("contact_key")
+    gpt_score = row.get("GPT Score")
+    if not contact_key or gpt_score is None:
+        print(f"Skipping row: {row}")
         continue
 
-    url = f"{REALNEX_BASE_URL}/{contact_key}"
-    payload_fax = {"fax": str(score)}
-    payload_user3 = {"user_3": str(score)}
+    # Prepare payload (updating the `fax` field)
+    payload = {
+        "fax": str(gpt_score)
+    }
 
-    try:
-        response = requests.put(url, headers=HEADERS, json=payload_fax)
-        if response.status_code == 200:
-            print(f"✅ Updated {contact_key} in fax field: {score}")
-        else:
-            print(f"⚠️ Fax update failed ({response.status_code}), retrying with user_3...")
-            response2 = requests.put(url, headers=HEADERS, json=payload_user3)
-            if response2.status_code == 200:
-                print(f"✅ Updated {contact_key} in user_3 field: {score}")
-            else:
-                print(f"❌ Failed user_3 too — {response2.status_code}: {response2.text}")
-    except Exception as e:
-        print(f"❌ Exception for {contact_key}: {str(e)}")
+    url = url_template.format(contact_key)
+    response = requests.put(url, headers=headers, json=payload)
 
-print("🚀 Fallback sync complete.")
+    if response.status_code == 200:
+        print(f"✅ Updated contact {contact_key} with score {gpt_score}")
+    else:
+        print(f"❌ Failed to update contact {contact_key}: {response.status_code}")
+        print("Response:", response.text)
