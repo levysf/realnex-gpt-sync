@@ -62,35 +62,51 @@ def test_realnex_fields():
             "success": get_response.status_code < 400
         }
         
-        # If GET works, try PUT to update fax field
+        # If GET works, try PUT with the full contact object
         if get_response.status_code < 400:
-            put_fax_payload = {"fax": "415-555-0000"}
-            put_fax_response = requests.put(correct_endpoint, headers=headers, json=put_fax_payload, timeout=10)
-            results["PUT_fax"] = {
-                "status": put_fax_response.status_code,
-                "body_preview": put_fax_response.text[:500] if put_fax_response.text else "",
-                "success": put_fax_response.status_code < 400,
-                "payload_sent": put_fax_payload
+            # Parse the existing contact data
+            try:
+                contact_data = get_response.json()
+                
+                # Update fax field in the full contact object
+                contact_data["fax"] = "415-555-0000"
+                put_fax_response = requests.put(correct_endpoint, headers=headers, json=contact_data, timeout=10)
+                results["PUT_fax_full_object"] = {
+                    "status": put_fax_response.status_code,
+                    "body_preview": put_fax_response.text[:500] if put_fax_response.text else "",
+                    "success": put_fax_response.status_code < 400,
+                    "approach": "Sent full contact object with updated fax"
+                }
+                
+                # Reset and try user_3 field
+                contact_data = get_response.json()  # Reset to original
+                contact_data["user_3"] = "TESTING USER 3 FIELD"
+                put_user3_response = requests.put(correct_endpoint, headers=headers, json=contact_data, timeout=10)
+                results["PUT_user_3_full_object"] = {
+                    "status": put_user3_response.status_code,
+                    "body_preview": put_user3_response.text[:500] if put_user3_response.text else "",
+                    "success": put_user3_response.status_code < 400,
+                    "approach": "Sent full contact object with user_3 field"
+                }
+                
+            except Exception as json_error:
+                results["json_parse_error"] = str(json_error)
+            
+            # Also try with different headers
+            alt_headers = {
+                "Authorization": f"Bearer {REALNEX_API_KEY}",
+                "Content-Type": "application/json",
+                "Accept": "application/json"
             }
             
-            # Also try PUT to update user_3 field
-            put_user3_payload = {"user_3": "TESTING USER 3 FIELD"}
-            put_user3_response = requests.put(correct_endpoint, headers=headers, json=put_user3_payload, timeout=10)
-            results["PUT_user_3"] = {
-                "status": put_user3_response.status_code,
-                "body_preview": put_user3_response.text[:500] if put_user3_response.text else "",
-                "success": put_user3_response.status_code < 400,
-                "payload_sent": put_user3_payload
-            }
-            
-            # Try PATCH as alternative
-            patch_payload = {"fax": "415-555-1111"}
-            patch_response = requests.patch(correct_endpoint, headers=headers, json=patch_payload, timeout=10)
-            results["PATCH_fax"] = {
-                "status": patch_response.status_code,
-                "body_preview": patch_response.text[:500] if patch_response.text else "",
-                "success": patch_response.status_code < 400,
-                "payload_sent": patch_payload
+            put_alt_payload = {"fax": "415-555-2222"}
+            put_alt_response = requests.put(correct_endpoint, headers=alt_headers, json=put_alt_payload, timeout=10)
+            results["PUT_with_alt_headers"] = {
+                "status": put_alt_response.status_code,
+                "body_preview": put_alt_response.text[:500] if put_alt_response.text else "",
+                "success": put_alt_response.status_code < 400,
+                "headers_used": alt_headers,
+                "payload_sent": put_alt_payload
             }
         
     except Exception as e:
