@@ -14,7 +14,7 @@ creds = Credentials.from_service_account_info(eval(GOOGLE_CREDS_JSON), scopes=sc
 client = gspread.authorize(creds)
 
 # Open the spreadsheet and worksheet
-spreadsheet = client.open_by_key(GOOGLE_DRIVE_FILE_ID)
+spreadsheet = client.open(GOOGLE_SHEET_NAME)
 worksheet = spreadsheet.worksheet(GOOGLE_SHEET_NAME)
 
 # Read all data
