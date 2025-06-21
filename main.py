@@ -45,65 +45,89 @@ headers = {
 
 @app.route("/")
 def test_realnex_fields():
-    test_payload_fax = {
-        "fax": "415-555-0000"
-    }
-    
-    test_payload_user_3 = {
-        "user_3": "TESTING USER 3 FIELD"
-    }
-    
-    # Try multiple possible endpoints
-    possible_endpoints = [
-        f"https://sync.realnex.com/api/v1/contact/{REALNEX_CONTACT_ID}",
-        f"https://sync.realnex.com/api/v1/contacts/{REALNEX_CONTACT_ID}",
-        f"https://sync.realnex.com/v1/contact/{REALNEX_CONTACT_ID}",
-        f"https://sync.realnex.com/v1/contacts/{REALNEX_CONTACT_ID}",
-        f"https://sync.realnex.com/api/contact/{REALNEX_CONTACT_ID}",
-        f"https://sync.realnex.com/contact/{REALNEX_CONTACT_ID}"
+    # Test different base URLs and approaches
+    base_urls = [
+        "https://sync.realnex.com",
+        "https://api.realnex.com", 
+        "https://app.realnex.com",
+        "https://www.realnex.com"
     ]
     
     results = {}
     
-    for i, url in enumerate(possible_endpoints):
-        endpoint_name = f"endpoint_{i+1}"
-        print(f"Testing endpoint {i+1}: {url}")
+    # First, let's try some simple GET requests to see what's available
+    for i, base_url in enumerate(base_urls):
+        base_name = f"base_{i+1}"
+        results[base_name] = {"base_url": base_url}
         
-        try:
-            # Try fax field
-            fax_response = requests.put(url, headers=headers, json=test_payload_fax, timeout=10)
-            
-            results[endpoint_name] = {
-                "url": url,
-                "fax_response": {
-                    "status_code": fax_response.status_code,
-                    "body": fax_response.text[:200] if fax_response.text else "",
-                    "success": fax_response.status_code < 400
-                }
-            }
-            
-            # If we get a good response, also try user_3
-            if fax_response.status_code < 400:
-                user3_response = requests.put(url, headers=headers, json=test_payload_user_3, timeout=10)
-                results[endpoint_name]["user_3_response"] = {
-                    "status_code": user3_response.status_code,
-                    "body": user3_response.text[:200] if user3_response.text else "",
-                    "success": user3_response.status_code < 400
-                }
-            
-            # Stop testing if we found a working endpoint
-            if fax_response.status_code < 400:
-                break
-                
-        except Exception as e:
-            results[endpoint_name] = {
-                "url": url,
-                "error": str(e)
-            }
+        # Try some common endpoints
+        test_endpoints = [
+            f"{base_url}/",
+            f"{base_url}/api",
+            f"{base_url}/v1",
+            f"{base_url}/api/v1",
+            f"{base_url}/swagger",
+            f"{base_url}/docs"
+        ]
+        
+        for endpoint in test_endpoints:
+            try:
+                response = requests.get(endpoint, timeout=5)
+                if response.status_code < 400:
+                    results[base_name][f"working_endpoint"] = {
+                        "url": endpoint,
+                        "status": response.status_code,
+                        "content_preview": response.text[:100] if response.text else ""
+                    }
+                    break
+            except:
+                continue
+    
+    # Also test our contact endpoint with different HTTP methods
+    contact_tests = {}
+    test_url = f"https://sync.realnex.com/api/v1/contact/{REALNEX_CONTACT_ID}"
+    
+    # Try GET first to see if contact exists
+    try:
+        get_response = requests.get(test_url, headers=headers, timeout=10)
+        contact_tests["GET"] = {
+            "status_code": get_response.status_code,
+            "body": get_response.text[:200] if get_response.text else ""
+        }
+    except Exception as e:
+        contact_tests["GET"] = {"error": str(e)}
+    
+    # Try PATCH instead of PUT
+    try:
+        patch_response = requests.patch(test_url, headers=headers, json={"fax": "415-555-0000"}, timeout=10)
+        contact_tests["PATCH"] = {
+            "status_code": patch_response.status_code,
+            "body": patch_response.text[:200] if patch_response.text else ""
+        }
+    except Exception as e:
+        contact_tests["PATCH"] = {"error": str(e)}
+    
+    # Try POST 
+    try:
+        post_response = requests.post(test_url, headers=headers, json={"fax": "415-555-0000"}, timeout=10)
+        contact_tests["POST"] = {
+            "status_code": post_response.status_code,
+            "body": post_response.text[:200] if post_response.text else ""
+        }
+    except Exception as e:
+        contact_tests["POST"] = {"error": str(e)}
     
     return {
         "contact_id": REALNEX_CONTACT_ID,
-        "tested_endpoints": results
+        "api_key_present": bool(REALNEX_API_KEY),
+        "api_key_length": len(REALNEX_API_KEY) if REALNEX_API_KEY else 0,
+        "base_url_tests": results,
+        "contact_method_tests": contact_tests,
+        "headers_used": {
+            "Authorization": f"Bearer {REALNEX_API_KEY[:10]}..." if REALNEX_API_KEY else "None",
+            "Content-Type": headers.get("Content-Type"),
+            "accept": headers.get("accept")
+        }
     }
 
 if __name__ == "__main__":
