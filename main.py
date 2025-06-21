@@ -6,7 +6,6 @@ import requests
 from google.oauth2.service_account import Credentials
 
 # === LOAD SECRETS FROM ENV ===
-GOOGLE_DRIVE_FILE_ID = os.environ["GOOGLE_DRIVE_FILE_ID"]
 GOOGLE_SERVICE_ACCOUNT_KEY = os.environ["GOOGLE_SERVICE_ACCOUNT_KEY"]
 REALNEX_API_KEY = os.environ["REALNEX_API_KEY"]
 
@@ -16,9 +15,9 @@ scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapi
 credentials = Credentials.from_service_account_info(service_account_info, scopes=scopes)
 client = gspread.authorize(credentials)
 
-# Open by file ID
-spreadsheet = client.open_by_key(GOOGLE_DRIVE_FILE_ID)
-worksheet = spreadsheet.sheet1
+# ✅ OPEN BY SHEET NAME
+spreadsheet = client.open("RealNex API Test")
+worksheet = spreadsheet.worksheet("RealNex API Test")  # tab name
 data = pd.DataFrame(worksheet.get_all_records())
 
 # === REALNEX CONFIG ===
@@ -31,18 +30,17 @@ for i, row in data.iterrows():
     
     if not contact_key or pd.isna(score):
         continue
-
+        
     url = f"{REALNEX_BASE_URL}/v2/contacts/{contact_key}"
     headers = {
         "accept": "application/json",
         "content-type": "application/json",
         "x-api-key": REALNEX_API_KEY
     }
-
     payload = {
         "fax": str(score)  # Writing GPT Score into the fax field
     }
-
+    
     try:
         response = requests.put(url, headers=headers, data=json.dumps(payload))
         if response.status_code == 200:
@@ -51,3 +49,5 @@ for i, row in data.iterrows():
             print(f"❌ Error for {contact_key}: {response.status_code} - {response.text}")
     except Exception as e:
         print(f"⚠️ Exception for {contact_key}: {str(e)}")
+
+print("🎉 Sync completed!")
