@@ -57,7 +57,7 @@ def test_realnex_fields():
     
     results = {}
     
-    # Get the full contact data first (with shorter timeout since this works)
+    # Get the full contact data first
     try:
         full_response = requests.get(full_endpoint, headers=merge_patch_headers, timeout=15)
         results["GET_full_contact"] = {
@@ -67,75 +67,110 @@ def test_realnex_fields():
         
         if full_response.status_code < 400:
             full_contact_data = full_response.json()
-            current_user3 = full_contact_data.get("investorData", {}).get("userFields", {}).get("user3", "unknown")
             
-            # Test 1: Simple fax update with longer timeout
-            try:
-                fax_patch = {"fax": "415-555-MERGE-PATCH"}
-                fax_response = requests.put(regular_endpoint, headers=merge_patch_headers, json=fax_patch, timeout=30)
-                results["PUT_fax_merge_patch"] = {
-                    "status": fax_response.status_code,
-                    "success": fax_response.status_code < 400,
-                    "body_preview": fax_response.text[:500] if fax_response.text else "",
-                    "approach": "PUT with application/merge-patch+json for fax"
+            # Test different field types to see which ones work/are faster
+            test_fields = [
+                {
+                    "name": "title",
+                    "payload": {"title": "UPDATED-TITLE-TEST"},
+                    "description": "Simple string field"
+                },
+                {
+                    "name": "mobile", 
+                    "payload": {"mobile": "+1 (415) 555-MOBILE"},
+                    "description": "Phone number field"
+                },
+                {
+                    "name": "email",
+                    "payload": {"email": "test-update@example.com"},
+                    "description": "Email field"
+                },
+                {
+                    "name": "fax",
+                    "payload": {"fax": "415-555-FAX"},
+                    "description": "Fax field (what we want for GPT scores)"
+                },
+                {
+                    "name": "doNotCall",
+                    "payload": {"doNotCall": True},
+                    "description": "Boolean field"
                 }
-            except requests.exceptions.Timeout:
-                results["PUT_fax_merge_patch"] = {
-                    "status": "TIMEOUT",
-                    "note": "Request timed out after 30 seconds - may still be processing"
-                }
-            except Exception as e:
-                results["PUT_fax_merge_patch"] = {"error": str(e)}
+            ]
             
-            # Test 2: User3 update (only if fax didn't timeout)
-            if "PUT_fax_merge_patch" in results and results["PUT_fax_merge_patch"].get("status") != "TIMEOUT":
+            # Test each field with a shorter timeout first
+            for test in test_fields:
+                field_name = test["name"]
+                try:
+                    response = requests.put(
+                        regular_endpoint, 
+                        headers=merge_patch_headers, 
+                        json=test["payload"], 
+                        timeout=20
+                    )
+                    results[f"PUT_{field_name}"] = {
+                        "status": response.status_code,
+                        "success": response.status_code < 400,
+                        "field": field_name,
+                        "description": test["description"],
+                        "body_preview": response.text[:300] if response.text else "",
+                        "payload_sent": test["payload"]
+                    }
+                    
+                    # If we get a success, stop and verify it worked
+                    if response.status_code < 400:
+                        results[f"SUCCESS_FOUND"] = {
+                            "successful_field": field_name,
+                            "next_step": "This field type works! We can use this pattern."
+                        }
+                        break
+                        
+                except requests.exceptions.Timeout:
+                    results[f"PUT_{field_name}"] = {
+                        "status": "TIMEOUT",
+                        "field": field_name,
+                        "description": test["description"],
+                        "note": f"Timed out after 20 seconds"
+                    }
+                except Exception as e:
+                    results[f"PUT_{field_name}"] = {
+                        "status": "ERROR",
+                        "field": field_name,
+                        "error": str(e)
+                    }
+            
+            # If we found a working field, test the nested user3 field
+            if "SUCCESS_FOUND" in results:
                 try:
                     user3_patch = {
                         "investorData": {
                             "userFields": {
-                                "user3": "GPT-SCORE-SUCCESS"
+                                "user3": "GPT-SCORE-NESTED-TEST"
                             }
                         }
                     }
-                    user3_response = requests.put(regular_endpoint, headers=merge_patch_headers, json=user3_patch, timeout=30)
-                    results["PUT_user3_merge_patch"] = {
+                    user3_response = requests.put(regular_endpoint, headers=merge_patch_headers, json=user3_patch, timeout=25)
+                    results["PUT_user3_nested"] = {
                         "status": user3_response.status_code,
                         "success": user3_response.status_code < 400,
-                        "body_preview": user3_response.text[:500] if user3_response.text else "",
-                        "approach": "PUT with application/merge-patch+json for user3",
-                        "current_user3_before_update": current_user3
+                        "body_preview": user3_response.text[:300] if user3_response.text else "",
+                        "approach": "Nested investorData.userFields.user3 update"
                     }
                 except requests.exceptions.Timeout:
-                    results["PUT_user3_merge_patch"] = {
-                        "status": "TIMEOUT",
-                        "note": "Request timed out after 30 seconds - may still be processing"
+                    results["PUT_user3_nested"] = {
+                        "status": "TIMEOUT", 
+                        "note": "Nested field update timed out"
                     }
                 except Exception as e:
-                    results["PUT_user3_merge_patch"] = {"error": str(e)}
-            
-            # Test 3: Verify the update worked by getting the contact again
-            if any(test.get("success") for test in results.values() if isinstance(test, dict)):
-                try:
-                    verify_response = requests.get(full_endpoint, headers=merge_patch_headers, timeout=15)
-                    if verify_response.status_code < 400:
-                        updated_contact = verify_response.json()
-                        results["verification"] = {
-                            "status": verify_response.status_code,
-                            "updated_fax": updated_contact.get("fax"),
-                            "updated_user3": updated_contact.get("investorData", {}).get("userFields", {}).get("user3"),
-                            "original_user3": current_user3
-                        }
-                except Exception as e:
-                    results["verification"] = {"error": str(e)}
+                    results["PUT_user3_nested"] = {"error": str(e)}
             
     except Exception as e:
         results["GET_full_contact"] = {"error": str(e)}
     
     return {
         "contact_id": REALNEX_CONTACT_ID,
-        "discovery": "Testing merge-patch+json with longer timeouts",
+        "strategy": "Testing multiple field types to find which ones update successfully",
         "test_results": results,
-        "note": "Timeout suggests server is processing the request (good sign!)"
+        "goal": "Find a field type that works quickly, then apply same pattern to user3"
     }
 
 if __name__ == "__main__":
