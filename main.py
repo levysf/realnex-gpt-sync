@@ -5,7 +5,6 @@ from google.oauth2.service_account import Credentials
 
 # Load credentials from environment variables
 REALNEX_API_KEY = os.environ["REALNEX_API_KEY"]
-GOOGLE_DRIVE_FILE_ID = os.environ["GOOGLE_DRIVE_FILE_ID"]
 GOOGLE_SHEET_NAME = os.environ["GOOGLE_SHEET_NAME"]
 GOOGLE_CREDS_JSON = os.environ["GOOGLE_CREDS_JSON"]
 
