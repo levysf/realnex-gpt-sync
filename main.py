@@ -45,104 +45,71 @@ headers = {
 
 @app.route("/")
 def test_realnex_fields():
-    # Based on Swagger docs: GET/PUT /api/v1/Crm/contact/{contactKey}
-    correct_endpoint = f"https://sync.realnex.com/api/v1/Crm/contact/{REALNEX_CONTACT_ID}"
+    # Test both regular and /full endpoints with correct structure
+    regular_endpoint = f"https://sync.realnex.com/api/v1/Crm/contact/{REALNEX_CONTACT_ID}"
+    full_endpoint = f"https://sync.realnex.com/api/v1/Crm/contact/{REALNEX_CONTACT_ID}/full"
+    
+    # Also test with URL-encoded curly braces (like in the curl example)
+    contact_id_encoded = f"%7B{REALNEX_CONTACT_ID}%7D"
+    full_endpoint_encoded = f"https://sync.realnex.com/api/v1/Crm/contact/{contact_id_encoded}/full"
     
     results = {}
     
-    print(f"Testing correct endpoint: {correct_endpoint}")
-    
-    # First, try GET to see if contact exists
+    # First, get the full contact data
     try:
-        get_response = requests.get(correct_endpoint, headers=headers, timeout=10)
-        results["GET_contact"] = {
-            "url": correct_endpoint,
-            "status": get_response.status_code,
-            "body_preview": get_response.text[:500] if get_response.text else "",
-            "success": get_response.status_code < 400
+        full_response = requests.get(full_endpoint, headers=headers, timeout=10)
+        results["GET_full_contact"] = {
+            "status": full_response.status_code,
+            "success": full_response.status_code < 400,
+            "endpoint": full_endpoint,
+            "body_preview": full_response.text[:800] if full_response.text else ""
         }
         
-        # If GET works, try different approaches
-        if get_response.status_code < 400:
-            contact_data = get_response.json()
+        if full_response.status_code < 400:
+            full_contact_data = full_response.json()
             
-            # Approach 1: Try POST instead of PUT (some APIs use POST for updates)
-            contact_data["fax"] = "415-555-0000"
-            post_response = requests.post(correct_endpoint, headers=headers, json=contact_data, timeout=10)
-            results["POST_full_object"] = {
-                "status": post_response.status_code,
-                "body_preview": post_response.text[:500] if post_response.text else "",
-                "success": post_response.status_code < 400,
-                "approach": "POST with full contact object"
-            }
+            # Test 1: Update fax field (root level)
+            full_contact_data["fax"] = "415-555-FAX-TEST"
             
-            # Approach 2: Try different Content-Type
-            form_headers = {
-                "Authorization": f"Bearer {REALNEX_API_KEY}",
-                "Content-Type": "application/x-www-form-urlencoded"
-            }
-            form_data = {"fax": "415-555-3333"}
-            form_response = requests.put(correct_endpoint, headers=form_headers, data=form_data, timeout=10)
-            results["PUT_form_data"] = {
-                "status": form_response.status_code,
-                "body_preview": form_response.text[:500] if form_response.text else "",
-                "success": form_response.status_code < 400,
-                "approach": "PUT with form data"
+            fax_update_response = requests.put(regular_endpoint, headers=headers, json=full_contact_data, timeout=10)
+            results["PUT_fax_update"] = {
+                "status": fax_update_response.status_code,
+                "success": fax_update_response.status_code < 400,
+                "body_preview": fax_update_response.text[:500] if fax_update_response.text else "",
+                "approach": "Updated fax field at root level"
             }
             
-            # Approach 3: Try a different endpoint - maybe there's an update endpoint
-            update_endpoint = f"https://sync.realnex.com/api/v1/Crm/contact/{REALNEX_CONTACT_ID}/update"
-            update_response = requests.post(update_endpoint, headers=headers, json={"fax": "415-555-4444"}, timeout=10)
-            results["POST_update_endpoint"] = {
-                "status": update_response.status_code,
-                "body_preview": update_response.text[:500] if update_response.text else "",
-                "success": update_response.status_code < 400,
-                "approach": "POST to /update endpoint"
+            # Test 2: Update user3 in the correct nested location
+            if "investorData" in full_contact_data and "userFields" in full_contact_data["investorData"]:
+                full_contact_data_copy = full_response.json()  # Fresh copy
+                full_contact_data_copy["investorData"]["userFields"]["user3"] = "GPT-SCORE-SUCCESS"
+                
+                user3_update_response = requests.put(regular_endpoint, headers=headers, json=full_contact_data_copy, timeout=10)
+                results["PUT_user3_nested"] = {
+                    "status": user3_update_response.status_code,
+                    "success": user3_update_response.status_code < 400,
+                    "body_preview": user3_update_response.text[:500] if user3_update_response.text else "",
+                    "approach": "Updated investorData.userFields.user3",
+                    "current_user3_value": full_contact_data.get("investorData", {}).get("userFields", {}).get("user3")
+                }
+            
+            # Test 3: Try with URL-encoded endpoint
+            encoded_response = requests.get(full_endpoint_encoded, headers=headers, timeout=10)
+            results["GET_encoded_endpoint"] = {
+                "status": encoded_response.status_code,
+                "success": encoded_response.status_code < 400,
+                "endpoint": full_endpoint_encoded,
+                "note": "Testing with URL-encoded curly braces like in curl example"
             }
             
-            # Approach 4: Check if we can get more detailed error info
-            detailed_headers = {
-                "Authorization": f"Bearer {REALNEX_API_KEY}",
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-                "Accept-Encoding": "gzip, deflate",
-                "User-Agent": "RealNex-API-Test/1.0"
-            }
-            detailed_response = requests.put(correct_endpoint, headers=detailed_headers, json={"fax": "415-555-5555"}, timeout=10)
-            results["PUT_detailed_headers"] = {
-                "status": detailed_response.status_code,
-                "body_preview": detailed_response.text[:500] if detailed_response.text else "",
-                "success": detailed_response.status_code < 400,
-                "approach": "PUT with detailed headers",
-                "response_headers": dict(detailed_response.headers) if detailed_response.headers else {}
-            }
-        
     except Exception as e:
-        results["GET_contact"] = {
-            "url": correct_endpoint,
-            "error": str(e)
-        }
-    
-    # Also test the base CRM endpoint to see what's available
-    base_crm_endpoint = "https://sync.realnex.com/api/v1/Crm"
-    try:
-        base_response = requests.get(base_crm_endpoint, headers=headers, timeout=10)
-        results["base_crm_endpoint"] = {
-            "url": base_crm_endpoint,
-            "status": base_response.status_code,
-            "body_preview": base_response.text[:300] if base_response.text else ""
-        }
-    except Exception as e:
-        results["base_crm_endpoint"] = {"error": str(e)}
+        results["GET_full_contact"] = {"error": str(e)}
     
     return {
         "contact_id": REALNEX_CONTACT_ID,
-        "correct_endpoint_found": "YES - /api/v1/Crm/contact/{contactKey}",
+        "discovery": "Found /full endpoint and correct user3 location: investorData.userFields.user3",
         "test_results": results,
-        "summary": {
-            "endpoint_used": correct_endpoint,
-            "expecting": "200 status codes for GET and PUT operations"
-        }
+        "next_step": "If this works, we can build the full sync script!"
     }
 
 if __name__ == "__main__":
