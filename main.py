@@ -62,51 +62,59 @@ def test_realnex_fields():
             "success": get_response.status_code < 400
         }
         
-        # If GET works, try PUT with the full contact object
+        # If GET works, try different approaches
         if get_response.status_code < 400:
-            # Parse the existing contact data
-            try:
-                contact_data = get_response.json()
-                
-                # Update fax field in the full contact object
-                contact_data["fax"] = "415-555-0000"
-                put_fax_response = requests.put(correct_endpoint, headers=headers, json=contact_data, timeout=10)
-                results["PUT_fax_full_object"] = {
-                    "status": put_fax_response.status_code,
-                    "body_preview": put_fax_response.text[:500] if put_fax_response.text else "",
-                    "success": put_fax_response.status_code < 400,
-                    "approach": "Sent full contact object with updated fax"
-                }
-                
-                # Reset and try user_3 field
-                contact_data = get_response.json()  # Reset to original
-                contact_data["user_3"] = "TESTING USER 3 FIELD"
-                put_user3_response = requests.put(correct_endpoint, headers=headers, json=contact_data, timeout=10)
-                results["PUT_user_3_full_object"] = {
-                    "status": put_user3_response.status_code,
-                    "body_preview": put_user3_response.text[:500] if put_user3_response.text else "",
-                    "success": put_user3_response.status_code < 400,
-                    "approach": "Sent full contact object with user_3 field"
-                }
-                
-            except Exception as json_error:
-                results["json_parse_error"] = str(json_error)
+            contact_data = get_response.json()
             
-            # Also try with different headers
-            alt_headers = {
-                "Authorization": f"Bearer {REALNEX_API_KEY}",
-                "Content-Type": "application/json",
-                "Accept": "application/json"
+            # Approach 1: Try POST instead of PUT (some APIs use POST for updates)
+            contact_data["fax"] = "415-555-0000"
+            post_response = requests.post(correct_endpoint, headers=headers, json=contact_data, timeout=10)
+            results["POST_full_object"] = {
+                "status": post_response.status_code,
+                "body_preview": post_response.text[:500] if post_response.text else "",
+                "success": post_response.status_code < 400,
+                "approach": "POST with full contact object"
             }
             
-            put_alt_payload = {"fax": "415-555-2222"}
-            put_alt_response = requests.put(correct_endpoint, headers=alt_headers, json=put_alt_payload, timeout=10)
-            results["PUT_with_alt_headers"] = {
-                "status": put_alt_response.status_code,
-                "body_preview": put_alt_response.text[:500] if put_alt_response.text else "",
-                "success": put_alt_response.status_code < 400,
-                "headers_used": alt_headers,
-                "payload_sent": put_alt_payload
+            # Approach 2: Try different Content-Type
+            form_headers = {
+                "Authorization": f"Bearer {REALNEX_API_KEY}",
+                "Content-Type": "application/x-www-form-urlencoded"
+            }
+            form_data = {"fax": "415-555-3333"}
+            form_response = requests.put(correct_endpoint, headers=form_headers, data=form_data, timeout=10)
+            results["PUT_form_data"] = {
+                "status": form_response.status_code,
+                "body_preview": form_response.text[:500] if form_response.text else "",
+                "success": form_response.status_code < 400,
+                "approach": "PUT with form data"
+            }
+            
+            # Approach 3: Try a different endpoint - maybe there's an update endpoint
+            update_endpoint = f"https://sync.realnex.com/api/v1/Crm/contact/{REALNEX_CONTACT_ID}/update"
+            update_response = requests.post(update_endpoint, headers=headers, json={"fax": "415-555-4444"}, timeout=10)
+            results["POST_update_endpoint"] = {
+                "status": update_response.status_code,
+                "body_preview": update_response.text[:500] if update_response.text else "",
+                "success": update_response.status_code < 400,
+                "approach": "POST to /update endpoint"
+            }
+            
+            # Approach 4: Check if we can get more detailed error info
+            detailed_headers = {
+                "Authorization": f"Bearer {REALNEX_API_KEY}",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "Accept-Encoding": "gzip, deflate",
+                "User-Agent": "RealNex-API-Test/1.0"
+            }
+            detailed_response = requests.put(correct_endpoint, headers=detailed_headers, json={"fax": "415-555-5555"}, timeout=10)
+            results["PUT_detailed_headers"] = {
+                "status": detailed_response.status_code,
+                "body_preview": detailed_response.text[:500] if detailed_response.text else "",
+                "success": detailed_response.status_code < 400,
+                "approach": "PUT with detailed headers",
+                "response_headers": dict(detailed_response.headers) if detailed_response.headers else {}
             }
         
     except Exception as e:
