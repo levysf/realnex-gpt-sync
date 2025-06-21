@@ -45,22 +45,21 @@ headers = {
 
 @app.route("/")
 def test_realnex_fields():
-    # Use the working full endpoint
-    full_endpoint = f"https://sync.realnex.com/api/v1/Crm/contact/{REALNEX_CONTACT_ID}/full"
-    regular_endpoint = f"https://sync.realnex.com/api/v1/Crm/contact/{REALNEX_CONTACT_ID}"
-    
-    # Try the special headers from the curl example
-    odata_headers = {
+    # Use the merge-patch+json Content-Type from Swagger docs
+    merge_patch_headers = {
         "Authorization": f"Bearer {REALNEX_API_KEY}",
-        "accept": "application/json;odata.metadata=minimal;odata.streaming=true",
-        "Content-Type": "application/json"
+        "Content-Type": "application/merge-patch+json",
+        "Accept": "application/json"
     }
+    
+    regular_endpoint = f"https://sync.realnex.com/api/v1/Crm/contact/{REALNEX_CONTACT_ID}"
+    full_endpoint = f"https://sync.realnex.com/api/v1/Crm/contact/{REALNEX_CONTACT_ID}/full"
     
     results = {}
     
-    # Get the full contact data
+    # Get the full contact data first
     try:
-        full_response = requests.get(full_endpoint, headers=odata_headers, timeout=10)
+        full_response = requests.get(full_endpoint, headers=merge_patch_headers, timeout=10)
         results["GET_full_contact"] = {
             "status": full_response.status_code,
             "success": full_response.status_code < 400
@@ -69,68 +68,57 @@ def test_realnex_fields():
         if full_response.status_code < 400:
             full_contact_data = full_response.json()
             
-            # Test 1: Try PUT with OData headers
-            test_contact = full_contact_data.copy()
-            test_contact["fax"] = "415-555-ODATA"
-            
-            odata_put_response = requests.put(regular_endpoint, headers=odata_headers, json=test_contact, timeout=10)
-            results["PUT_with_odata_headers"] = {
-                "status": odata_put_response.status_code,
-                "success": odata_put_response.status_code < 400,
-                "body_preview": odata_put_response.text[:500] if odata_put_response.text else ""
+            # Test 1: Update fax field with merge-patch+json
+            fax_patch = {"fax": "415-555-MERGE-PATCH"}
+            fax_response = requests.put(regular_endpoint, headers=merge_patch_headers, json=fax_patch, timeout=10)
+            results["PUT_fax_merge_patch"] = {
+                "status": fax_response.status_code,
+                "success": fax_response.status_code < 400,
+                "body_preview": fax_response.text[:500] if fax_response.text else "",
+                "approach": "PUT with application/merge-patch+json for fax"
             }
             
-            # Test 2: Try PATCH instead of PUT
-            patch_data = {"fax": "415-555-PATCH"}
-            patch_response = requests.patch(regular_endpoint, headers=odata_headers, json=patch_data, timeout=10)
-            results["PATCH_with_odata"] = {
+            # Test 2: Update user3 field in correct nested structure
+            user3_patch = {
+                "investorData": {
+                    "userFields": {
+                        "user3": "GPT-SCORE-MERGE-PATCH"
+                    }
+                }
+            }
+            user3_response = requests.put(regular_endpoint, headers=merge_patch_headers, json=user3_patch, timeout=10)
+            results["PUT_user3_merge_patch"] = {
+                "status": user3_response.status_code,
+                "success": user3_response.status_code < 400,
+                "body_preview": user3_response.text[:500] if user3_response.text else "",
+                "approach": "PUT with application/merge-patch+json for user3",
+                "current_user3": full_contact_data.get("investorData", {}).get("userFields", {}).get("user3")
+            }
+            
+            # Test 3: Try PATCH method with merge-patch+json
+            patch_response = requests.patch(regular_endpoint, headers=merge_patch_headers, json=fax_patch, timeout=10)
+            results["PATCH_merge_patch"] = {
                 "status": patch_response.status_code,
                 "success": patch_response.status_code < 400,
-                "body_preview": patch_response.text[:500] if patch_response.text else ""
+                "body_preview": patch_response.text[:500] if patch_response.text else "",
+                "approach": "PATCH with application/merge-patch+json"
             }
             
-            # Test 3: Try POST to the regular endpoint
-            post_contact = full_contact_data.copy()
-            post_contact["investorData"]["userFields"]["user3"] = "POST-TEST-USER3"
-            
-            post_response = requests.post(regular_endpoint, headers=odata_headers, json=post_contact, timeout=10)
-            results["POST_with_user3_update"] = {
-                "status": post_response.status_code,
-                "success": post_response.status_code < 400,
-                "body_preview": post_response.text[:500] if post_response.text else ""
-            }
-            
-            # Test 4: Check if there's a different update endpoint
-            update_endpoints = [
-                f"https://sync.realnex.com/api/v1/Crm/contact/{REALNEX_CONTACT_ID}/update",
-                f"https://sync.realnex.com/api/v1/Crm/contact/update/{REALNEX_CONTACT_ID}",
-                f"https://sync.realnex.com/api/v1/Crm/updatecontact/{REALNEX_CONTACT_ID}"
-            ]
-            
-            update_results = {}
-            for endpoint in update_endpoints:
-                try:
-                    update_response = requests.post(endpoint, headers=odata_headers, json={"fax": "415-UPDATE-TEST"}, timeout=10)
-                    update_results[endpoint] = {
-                        "status": update_response.status_code,
-                        "success": update_response.status_code < 400
+            # Test 4: Try updating both fields at once
+            combined_patch = {
+                "fax": "415-555-COMBINED",
+                "investorData": {
+                    "userFields": {
+                        "user3": "COMBINED-USER3-TEST"
                     }
-                except:
-                    update_results[endpoint] = {"error": "Request failed"}
-            
-            results["update_endpoint_tests"] = update_results
-            
-            # Test 5: Try minimal payload that just includes the ID and changed field
-            minimal_payload = {
-                "key": full_contact_data["key"],
-                "fax": "415-MINIMAL"
+                }
             }
-            
-            minimal_response = requests.put(regular_endpoint, headers=odata_headers, json=minimal_payload, timeout=10)
-            results["PUT_minimal_payload"] = {
-                "status": minimal_response.status_code,
-                "success": minimal_response.status_code < 400,
-                "body_preview": minimal_response.text[:500] if minimal_response.text else ""
+            combined_response = requests.put(regular_endpoint, headers=merge_patch_headers, json=combined_patch, timeout=10)
+            results["PUT_combined_merge_patch"] = {
+                "status": combined_response.status_code,
+                "success": combined_response.status_code < 400,
+                "body_preview": combined_response.text[:500] if combined_response.text else "",
+                "approach": "PUT both fax and user3 with merge-patch+json"
             }
             
     except Exception as e:
@@ -138,8 +126,9 @@ def test_realnex_fields():
     
     return {
         "contact_id": REALNEX_CONTACT_ID,
+        "discovery": "Found application/merge-patch+json Content-Type in Swagger docs!",
         "test_results": results,
-        "status": "Testing different HTTP methods and headers to find working update approach"
+        "expectation": "This should finally work with merge-patch+json Content-Type!"
     }
 
 if __name__ == "__main__":
